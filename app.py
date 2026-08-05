@@ -55,6 +55,46 @@ with st.sidebar:
     shear_amplitude_px = st.slider("Search raster drift/shear (px)", 0.0, 5.0, 1.5, 0.1)
     drift_jitter_px = st.slider("Search row jitter (px)", 0.0, 3.0, 0.5, 0.1)
 
+    st.header("Distortion & polygon scaling")
+    linewidth_bias_nm = st.slider(
+        "Linewidth/CD bias (nm)", -10.0, 10.0, 0.0, 0.5,
+        help="Deterministic global over/under-exposure bias applied to every drawn feature.",
+    )
+    corner_rounding_px = st.slider(
+        "Corner rounding (px)", 0.0, 6.0, 0.0, 0.5,
+        help="Morphological rounding of polygon corners -- real litho/etch never draws sharp corners.",
+    )
+    astigmatism_ratio = st.slider(
+        "Beam astigmatism ratio", 0.5, 2.0, 1.0, 0.05,
+        help="Elliptical beam spot (sigmaY = sigmaX * ratio) -- directional blur.",
+    )
+    barrel_distortion_k = st.slider(
+        "Barrel(+)/pincushion(-) distortion", -0.15, 0.15, 0.0, 0.01,
+        help="Radial lens-style distortion from imperfect beam-scan linearity.",
+    )
+    vignette_strength = st.slider("Vignette strength", 0.0, 1.0, 0.0, 0.05)
+    gamma = st.slider("Gamma (contrast curve)", 0.4, 2.5, 1.0, 0.05)
+    charging_streak_prob = st.slider(
+        "Charging streaks (per 100 rows)", 0.0, 5.0, 0.0, 0.25,
+        help="Bright horizontal streaks from local sample charging on insulating regions.",
+    )
+    charging_streak_intensity = st.slider("Charging streak intensity", 0.0, 3.0, 0.0, 0.1)
+
+    st.header("Die layout (multi-region)")
+    mat_size_nm = st.slider(
+        "Array block (mat) size (nm)", 800.0, 5000.0, 2600.0, 100.0,
+        help="Size of each independently-generated structure block before a separating strip.",
+    )
+    strip_width_nm = st.slider(
+        "Separator strip width (nm)", 80.0, 800.0, 320.0, 20.0,
+        help="Width of the peripheral/routing material band between array blocks.",
+    )
+    boundary_bias = st.slider(
+        "P(reference crop straddles a boundary)", 0.0, 1.0, 0.35, 0.05,
+        help="Probability the Reference crop is deliberately placed across a mat/strip edge "
+             "instead of sampled uniformly at random.",
+    )
+
     st.header(" ")
     show_gt_box = st.checkbox("Show ground-truth box", value=True)
     if st.button("Regenerate (new seed)"):
@@ -69,6 +109,17 @@ def build_params():
         dose_search=dose_search,
         shear_amplitude_px=shear_amplitude_px,
         drift_jitter_px=drift_jitter_px,
+        linewidth_bias_nm=linewidth_bias_nm,
+        corner_rounding_px=corner_rounding_px,
+        astigmatism_ratio=astigmatism_ratio,
+        barrel_distortion_k=barrel_distortion_k,
+        vignette_strength=vignette_strength,
+        gamma=gamma,
+        charging_streak_prob=charging_streak_prob,
+        charging_streak_intensity=charging_streak_intensity,
+        mat_size_nm=mat_size_nm,
+        strip_width_nm=strip_width_nm,
+        boundary_bias=boundary_bias,
     )
 
 

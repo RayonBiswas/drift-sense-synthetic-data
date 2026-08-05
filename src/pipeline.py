@@ -23,6 +23,7 @@ from src import sem_imaging
 from src.presets import get_preset
 from src.patterns.dram import generate_dram_canvas
 from src.patterns.finfet import generate_finfet_canvas
+from src.patterns.zones import generate_zone_canvas
 
 REFERENCE_SIZE_PX = 1000
 PIXEL_SIZE_REF_NM = 1
@@ -42,6 +43,38 @@ class GenerationParams:
     detector_noise_sigma_ref: float = 2.0
     detector_noise_sigma_search: float = 5.0
 
+    # Astigmatism: beam-spot ellipticity (1.0 = round spot, no effect)
+    astigmatism_ratio: float = 1.0
+    # Vignetting: radial darkening toward frame edges (0 = none)
+    vignette_strength: float = 0.0
+    # Nonlinear contrast/gamma response (1.0 = no effect)
+    gamma: float = 1.0
+    # Barrel(+)/pincushion(-) geometric lens distortion (0 = none)
+    barrel_distortion_k: float = 0.0
+    # Charging-streak artifacts: expected streaks per 100 rows, and their
+    # brightness scale (0 = none)
+    charging_streak_prob: float = 0.0
+    charging_streak_intensity: float = 0.0
+
+    # Large-scale zone composition: mat (array block) size and separating
+    # strip (peripheral/routing material) width, both in nm. Set
+    # mat_size_nm >= FINE_CANVAS size to effectively disable zoning (single
+    # uniform mat filling the canvas).
+    mat_size_nm: float = 2600.0
+    strip_width_nm: float = 320.0
+    # Probability that a sample's crop is deliberately biased to straddle a
+    # mat/strip boundary rather than sampled uniformly at random.
+    boundary_bias: float = 0.35
+
+    # Deterministic global CD/etch bias applied to every drawn line/contact,
+    # in nm ("polygon scaling" -- positive grows features, negative shrinks
+    # them), on top of each pattern module's own per-instance jitter.
+    linewidth_bias_nm: float = 0.0
+    # Morphological corner-rounding radius (px) applied to the rendered
+    # pattern mask -- real lithography/etch never produces perfectly sharp
+    # polygon corners.
+    corner_rounding_px: float = 0.0
+
     def as_dict(self) -> dict:
         return asdict(self)
 
@@ -58,11 +91,55 @@ def generate_fine_canvas(
     params: GenerationParams,
     preset_overrides: dict | None = None,
 ) -> np.ndarray:
+    """Legacy single-mat canvas (one preset filling the whole fine canvas,
+    no zone/strip composition). Kept for direct/simple use and tests;
+    generate_sample uses generate_fine_canvas_zoned by default.
+    """
     preset = get_preset(architecture)
     if preset_overrides:
         preset.update(preset_overrides)
     generator = _GENERATORS[preset["kind"]]
-    return generator(FINE_CANVAS_SIZE_PX, preset, params.collapse_threshold_nm, rng)
+    return generator(
+        FINE_CANVAS_SIZE_PX, preset, params.collapse_threshold_nm, rng,
+        linewidth_bias_nm=params.linewidth_bias_nm,
+        corner_rounding_px=params.corner_rounding_px,
+    )
+
+
+def generate_fine_canvas_zoned(
+    architecture: str,
+    rng: np.random.Generator,
+    params: GenerationParams,
+) -> dict:
+    preset = get_preset(architecture)
+    return generate_zone_canvas(
+        FINE_CANVAS_SIZE_PX,
+        preset["kind"],
+        params.collapse_threshold_nm,
+        rng,
+        mat_size_nm=params.mat_size_nm,
+        strip_width_nm=params.strip_width_nm,
+        linewidth_bias_nm=params.linewidth_bias_nm,
+        corner_rounding_px=params.corner_rounding_px,
+    )
+
+
+def _pick_crop_origin(zone_result: dict, params: GenerationParams, rng: np.random.Generator) -> tuple:
+    max_offset = FINE_CANVAS_SIZE_PX - REFERENCE_SIZE_PX
+    strip_rects = zone_result.get("strip_rects") or []
+
+    if strip_rects and rng.random() < params.boundary_bias:
+        sx, sy, sw, sh = strip_rects[int(rng.integers(0, len(strip_rects)))]
+        scx, scy = sx + sw / 2.0, sy + sh / 2.0
+        x0 = scx - REFERENCE_SIZE_PX / 2.0 + rng.uniform(-250, 250)
+        y0 = scy - REFERENCE_SIZE_PX / 2.0 + rng.uniform(-250, 250)
+        x0 = int(np.clip(x0, 0, max_offset))
+        y0 = int(np.clip(y0, 0, max_offset))
+        return x0, y0
+
+    x0 = int(rng.integers(0, max_offset + 1))
+    y0 = int(rng.integers(0, max_offset + 1))
+    return x0, y0
 
 
 def generate_sample(
@@ -71,11 +148,14 @@ def generate_sample(
     params: GenerationParams,
     preset_overrides: dict | None = None,
 ) -> dict:
-    fine_canvas = generate_fine_canvas(architecture, rng, params, preset_overrides)
+    if preset_overrides:
+        fine_canvas = generate_fine_canvas(architecture, rng, params, preset_overrides)
+        zone_result = {"strip_rects": []}
+    else:
+        zone_result = generate_fine_canvas_zoned(architecture, rng, params)
+        fine_canvas = zone_result["canvas"]
 
-    max_offset = FINE_CANVAS_SIZE_PX - REFERENCE_SIZE_PX
-    x0 = int(rng.integers(0, max_offset + 1))
-    y0 = int(rng.integers(0, max_offset + 1))
+    x0, y0 = _pick_crop_origin(zone_result, params, rng)
     crop = fine_canvas[y0:y0 + REFERENCE_SIZE_PX, x0:x0 + REFERENCE_SIZE_PX]
 
     reference_img = sem_imaging.image_reference(
@@ -86,6 +166,12 @@ def generate_sample(
         rng=rng,
         detector_noise_sigma=params.detector_noise_sigma_ref,
         drift_jitter_px=params.drift_jitter_px * 0.2,
+        astigmatism_ratio=params.astigmatism_ratio,
+        vignette_strength=params.vignette_strength * 0.5,
+        gamma=params.gamma,
+        barrel_distortion_k=params.barrel_distortion_k * 0.3,
+        charging_streak_prob=params.charging_streak_prob,
+        charging_streak_intensity=params.charging_streak_intensity,
     )
 
     search_img = sem_imaging.image_search(
@@ -98,6 +184,12 @@ def generate_sample(
         shear_amplitude_px=params.shear_amplitude_px,
         drift_jitter_px=params.drift_jitter_px,
         detector_noise_sigma=params.detector_noise_sigma_search,
+        astigmatism_ratio=params.astigmatism_ratio,
+        vignette_strength=params.vignette_strength,
+        gamma=params.gamma,
+        barrel_distortion_k=params.barrel_distortion_k,
+        charging_streak_prob=params.charging_streak_prob,
+        charging_streak_intensity=params.charging_streak_intensity,
     )
 
     box_w = box_h = REFERENCE_SIZE_PX // SCALE_FACTOR  # 100
@@ -114,4 +206,6 @@ def generate_sample(
         "gt_box": (gt_x0, gt_y0, box_w, box_h),
         "architecture": architecture,
         "params": params.as_dict(),
+        "mat_rects": zone_result.get("mat_rects", []),
+        "strip_rects": zone_result.get("strip_rects", []),
     }

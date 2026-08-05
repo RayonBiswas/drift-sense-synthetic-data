@@ -30,6 +30,17 @@ def parse_args():
     p.add_argument("--dose-search", type=float, default=GenerationParams.dose_search)
     p.add_argument("--shear-amplitude-px", type=float, default=GenerationParams.shear_amplitude_px)
     p.add_argument("--drift-jitter-px", type=float, default=GenerationParams.drift_jitter_px)
+    p.add_argument("--astigmatism-ratio", type=float, default=GenerationParams.astigmatism_ratio)
+    p.add_argument("--vignette-strength", type=float, default=GenerationParams.vignette_strength)
+    p.add_argument("--gamma", type=float, default=GenerationParams.gamma)
+    p.add_argument("--barrel-distortion-k", type=float, default=GenerationParams.barrel_distortion_k)
+    p.add_argument("--charging-streak-prob", type=float, default=GenerationParams.charging_streak_prob)
+    p.add_argument("--charging-streak-intensity", type=float, default=GenerationParams.charging_streak_intensity)
+    p.add_argument("--linewidth-bias-nm", type=float, default=GenerationParams.linewidth_bias_nm)
+    p.add_argument("--corner-rounding-px", type=float, default=GenerationParams.corner_rounding_px)
+    p.add_argument("--mat-size-nm", type=float, default=GenerationParams.mat_size_nm)
+    p.add_argument("--strip-width-nm", type=float, default=GenerationParams.strip_width_nm)
+    p.add_argument("--boundary-bias", type=float, default=GenerationParams.boundary_bias)
     return p.parse_args()
 
 
@@ -44,6 +55,17 @@ def main():
         dose_search=args.dose_search,
         shear_amplitude_px=args.shear_amplitude_px,
         drift_jitter_px=args.drift_jitter_px,
+        astigmatism_ratio=args.astigmatism_ratio,
+        vignette_strength=args.vignette_strength,
+        gamma=args.gamma,
+        barrel_distortion_k=args.barrel_distortion_k,
+        charging_streak_prob=args.charging_streak_prob,
+        charging_streak_intensity=args.charging_streak_intensity,
+        linewidth_bias_nm=args.linewidth_bias_nm,
+        corner_rounding_px=args.corner_rounding_px,
+        mat_size_nm=args.mat_size_nm,
+        strip_width_nm=args.strip_width_nm,
+        boundary_bias=args.boundary_bias,
     )
 
     split_dir = os.path.join(args.output_dir, args.split)
@@ -57,7 +79,11 @@ def main():
         "id", "reference_path", "search_path", "gt_x", "gt_y",
         "gt_box_x", "gt_box_y", "gt_box_w", "gt_box_h", "architecture",
         "beam_spot_size_nm", "collapse_threshold_nm", "dose_reference",
-        "dose_search", "shear_amplitude_px", "drift_jitter_px", "seed",
+        "dose_search", "shear_amplitude_px", "drift_jitter_px",
+        "astigmatism_ratio", "vignette_strength", "gamma", "barrel_distortion_k",
+        "charging_streak_prob", "charging_streak_intensity",
+        "linewidth_bias_nm", "corner_rounding_px",
+        "mat_size_nm", "strip_width_nm", "boundary_bias", "seed",
     ]
 
     with open(manifest_path, "w", newline="") as f:

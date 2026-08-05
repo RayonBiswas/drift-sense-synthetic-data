@@ -22,6 +22,10 @@ BIT_LINE_VAL = 170
 CONTACT_VAL = 225
 
 POSITION_JITTER_NM = 1.5
+# Per-instance linewidth variation as a fraction of nominal width (CD variation
+# / line-edge roughness proxy) -- "scaling of polygons" knob: each drawn
+# element gets its own slightly perturbed size rather than being identical.
+WIDTH_JITTER_FRACTION = 0.10
 
 
 def _line_positions(size_px: int, pitch_nm: float, rng: np.random.Generator) -> np.ndarray:
@@ -39,21 +43,32 @@ def _line_mask(
     width_nm: float,
     collapse_threshold_nm: float,
     rng: np.random.Generator,
+    width_jitter_fraction: float = WIDTH_JITTER_FRACTION,
+    linewidth_bias_nm: float = 0.0,
 ) -> np.ndarray:
-    """1D boolean mask marking line + any bridged (collapsed) gaps."""
+    """1D boolean mask marking line + any bridged (collapsed) gaps.
+
+    `linewidth_bias_nm` is a deterministic global CD bias (simulates
+    over/under-exposure or etch bias) applied on top of the per-instance
+    random jitter -- positive grows every line, negative shrinks them.
+    """
     mask = np.zeros(size_px, dtype=bool)
-    half_w = width_nm / 2.0
+    biased_width_nm = max(width_nm + linewidth_bias_nm, 1.0)
+    widths = biased_width_nm * (1.0 + rng.normal(0, width_jitter_fraction, size=len(positions)))
+    widths = np.clip(widths, biased_width_nm * 0.5, biased_width_nm * 1.5)
     for i, center in enumerate(positions):
+        half_w = widths[i] / 2.0
         lo = int(round(center - half_w))
         hi = int(round(center + half_w))
         mask[max(lo, 0):min(hi, size_px)] = True
 
         if i + 1 < len(positions):
             next_center = positions[i + 1]
-            gap_nm = (next_center - center) - width_nm
+            next_half_w = widths[i + 1] / 2.0
+            gap_nm = (next_center - next_half_w) - (center + half_w)
             if maybe_collapse_gap(gap_nm, collapse_threshold_nm, rng):
                 bridge_lo = int(round(center + half_w))
-                bridge_hi = int(round(next_center - half_w))
+                bridge_hi = int(round(next_center - next_half_w))
                 mask[max(bridge_lo, 0):min(bridge_hi, size_px)] = True
     return mask
 
@@ -63,6 +78,8 @@ def generate_dram_canvas(
     preset: dict,
     collapse_threshold_nm: float,
     rng: np.random.Generator,
+    linewidth_bias_nm: float = 0.0,
+    corner_rounding_px: float = 0.0,
 ) -> np.ndarray:
     canvas = np.full((size_px, size_px), BACKGROUND, dtype=np.uint8)
 
@@ -70,19 +87,28 @@ def generate_dram_canvas(
     bit_positions = _line_positions(size_px, preset["bit_line_pitch_nm"], rng)
 
     row_mask = _line_mask(
-        size_px, word_positions, preset["word_line_width_nm"], collapse_threshold_nm, rng
+        size_px, word_positions, preset["word_line_width_nm"], collapse_threshold_nm, rng,
+        linewidth_bias_nm=linewidth_bias_nm,
     )
     col_mask = _line_mask(
-        size_px, bit_positions, preset["bit_line_width_nm"], collapse_threshold_nm, rng
+        size_px, bit_positions, preset["bit_line_width_nm"], collapse_threshold_nm, rng,
+        linewidth_bias_nm=linewidth_bias_nm,
     )
 
     canvas[row_mask, :] = np.maximum(canvas[row_mask, :], WORD_LINE_VAL)
     canvas[:, col_mask] = np.maximum(canvas[:, col_mask], BIT_LINE_VAL)
 
-    radius = max(1, int(round(preset["contact_diameter_nm"] / 2.0)))
+    base_radius = max(preset["contact_diameter_nm"] + linewidth_bias_nm, 1.0) / 2.0
     for i, wl in enumerate(word_positions):
         for j, bl in enumerate(bit_positions):
             if (i + j) % 2 == 0:
+                radius = max(1, int(round(base_radius * (1.0 + rng.normal(0, WIDTH_JITTER_FRACTION)))))
                 cv2.circle(canvas, (int(round(bl)), int(round(wl))), radius, CONTACT_VAL, -1)
+
+    if corner_rounding_px >= 0.5:
+        k = max(1, int(round(corner_rounding_px)))
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * k + 1, 2 * k + 1))
+        canvas = cv2.morphologyEx(canvas, cv2.MORPH_OPEN, kernel)
+        canvas = cv2.morphologyEx(canvas, cv2.MORPH_CLOSE, kernel)
 
     return canvas
