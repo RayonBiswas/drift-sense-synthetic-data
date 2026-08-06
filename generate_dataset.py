@@ -36,6 +36,8 @@ def parse_args():
     p.add_argument("--barrel-distortion-k", type=float, default=GenerationParams.barrel_distortion_k)
     p.add_argument("--charging-streak-prob", type=float, default=GenerationParams.charging_streak_prob)
     p.add_argument("--charging-streak-intensity", type=float, default=GenerationParams.charging_streak_intensity)
+    p.add_argument("--speckle-sigma", type=float, default=GenerationParams.speckle_sigma)
+    p.add_argument("--salt-pepper-prob", type=float, default=GenerationParams.salt_pepper_prob)
     p.add_argument("--linewidth-bias-nm", type=float, default=GenerationParams.linewidth_bias_nm)
     p.add_argument("--corner-rounding-px", type=float, default=GenerationParams.corner_rounding_px)
     p.add_argument("--mat-size-nm", type=float, default=GenerationParams.mat_size_nm)
@@ -61,6 +63,8 @@ def main():
         barrel_distortion_k=args.barrel_distortion_k,
         charging_streak_prob=args.charging_streak_prob,
         charging_streak_intensity=args.charging_streak_intensity,
+        speckle_sigma=args.speckle_sigma,
+        salt_pepper_prob=args.salt_pepper_prob,
         linewidth_bias_nm=args.linewidth_bias_nm,
         corner_rounding_px=args.corner_rounding_px,
         mat_size_nm=args.mat_size_nm,
@@ -82,6 +86,7 @@ def main():
         "dose_search", "shear_amplitude_px", "drift_jitter_px",
         "astigmatism_ratio", "vignette_strength", "gamma", "barrel_distortion_k",
         "charging_streak_prob", "charging_streak_intensity",
+        "speckle_sigma", "salt_pepper_prob",
         "linewidth_bias_nm", "corner_rounding_px",
         "mat_size_nm", "strip_width_nm", "boundary_bias", "seed",
     ]

@@ -18,7 +18,7 @@ pairs (DRAM-style or FinFET-style structures) with ground truth.
 - Reference: 1000x1000 px @ 1 nm/px (1 um FOV)
 - Search: 1000x1000 px @ 10 nm/px (10 um FOV)
 
-See `slides/` (added later) for the full methodology walkthrough.
+See [`slides/index.html`](slides/index.html) for the full methodology walkthrough &mdash; an HTML slide deck (open directly in a browser, or `python3 -m http.server 8123 --directory slides`). Arrow keys / click edges to navigate, `F` for fullscreen.
 
 ## Setup
 ```

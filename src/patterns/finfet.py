@@ -67,7 +67,11 @@ def generate_finfet_canvas(
     rng: np.random.Generator,
     linewidth_bias_nm: float = 0.0,
     corner_rounding_px: float = 0.0,
-) -> np.ndarray:
+    return_layers: bool = False,
+):
+    """Render the FinFET array. See generate_dram_canvas for the
+    `return_layers` contract -- flattened composite is identical either way.
+    """
     canvas = np.full((size_px, size_px), BACKGROUND, dtype=np.uint8)
 
     fin_positions = _line_positions(size_px, preset["fin_pitch_nm"], rng)
@@ -82,27 +86,44 @@ def generate_finfet_canvas(
         linewidth_bias_nm=linewidth_bias_nm,
     )
 
+    fin_layer = np.zeros((size_px, size_px), dtype=np.uint8)
+    fin_layer[:, col_mask] = FIN_VAL
     canvas[:, col_mask] = np.maximum(canvas[:, col_mask], FIN_VAL)
+
+    gate_layer = np.zeros((size_px, size_px), dtype=np.uint8)
+    gate_layer[row_mask, :] = GATE_VAL
     canvas[row_mask, :] = np.maximum(canvas[row_mask, :], GATE_VAL)
 
+    contact_layer = np.zeros((size_px, size_px), dtype=np.uint8)
     half = max(1, int(round(max(preset["contact_size_nm"] + linewidth_bias_nm, 1.0) / 2.0)))
     for i, fin_x in enumerate(fin_positions):
         for j in range(len(gate_positions) - 1):
             if (i + j) % 2 == 0:
                 mid_y = (gate_positions[j] + gate_positions[j + 1]) / 2.0
                 x, y = int(round(fin_x)), int(round(mid_y))
-                cv2.rectangle(
-                    canvas,
-                    (max(x - half, 0), max(y - half, 0)),
-                    (min(x + half, size_px - 1), min(y + half, size_px - 1)),
-                    CONTACT_VAL,
-                    -1,
-                )
+                p0 = (max(x - half, 0), max(y - half, 0))
+                p1 = (min(x + half, size_px - 1), min(y + half, size_px - 1))
+                cv2.rectangle(canvas, p0, p1, CONTACT_VAL, -1)
+                cv2.rectangle(contact_layer, p0, p1, CONTACT_VAL, -1)
 
     if corner_rounding_px >= 0.5:
         k = max(1, int(round(corner_rounding_px)))
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * k + 1, 2 * k + 1))
         canvas = cv2.morphologyEx(canvas, cv2.MORPH_OPEN, kernel)
         canvas = cv2.morphologyEx(canvas, cv2.MORPH_CLOSE, kernel)
+        if return_layers:
+            for layer in (fin_layer, gate_layer, contact_layer):
+                layer[:] = cv2.morphologyEx(
+                    cv2.morphologyEx(layer, cv2.MORPH_OPEN, kernel), cv2.MORPH_CLOSE, kernel
+                )
+
+    if return_layers:
+        layers = {
+            "substrate": np.full((size_px, size_px), BACKGROUND, dtype=np.uint8),
+            "fin": fin_layer,
+            "gate": gate_layer,
+            "contact": contact_layer,
+        }
+        return canvas, layers
 
     return canvas

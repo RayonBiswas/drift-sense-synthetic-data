@@ -15,7 +15,7 @@ no separate "shrink by 10x" resize step is needed.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, replace
 
 import numpy as np
 
@@ -55,6 +55,10 @@ class GenerationParams:
     # brightness scale (0 = none)
     charging_streak_prob: float = 0.0
     charging_streak_intensity: float = 0.0
+    # Multiplicative (speckle-style) noise: out = img * (1 + N(0, sigma))
+    speckle_sigma: float = 0.0
+    # Impulse (salt-and-pepper) noise: fraction of pixels forced to 0/255
+    salt_pepper_prob: float = 0.0
 
     # Large-scale zone composition: mat (array block) size and separating
     # strip (peripheral/routing material) width, both in nm. Set
@@ -172,6 +176,8 @@ def generate_sample(
         barrel_distortion_k=params.barrel_distortion_k * 0.3,
         charging_streak_prob=params.charging_streak_prob,
         charging_streak_intensity=params.charging_streak_intensity,
+        speckle_sigma=params.speckle_sigma,
+        salt_pepper_prob=params.salt_pepper_prob,
     )
 
     search_img = sem_imaging.image_search(
@@ -190,6 +196,8 @@ def generate_sample(
         barrel_distortion_k=params.barrel_distortion_k,
         charging_streak_prob=params.charging_streak_prob,
         charging_streak_intensity=params.charging_streak_intensity,
+        speckle_sigma=params.speckle_sigma,
+        salt_pepper_prob=params.salt_pepper_prob,
     )
 
     box_w = box_h = REFERENCE_SIZE_PX // SCALE_FACTOR  # 100
@@ -206,6 +214,106 @@ def generate_sample(
         "gt_box": (gt_x0, gt_y0, box_w, box_h),
         "architecture": architecture,
         "params": params.as_dict(),
+        "mat_rects": zone_result.get("mat_rects", []),
+        "strip_rects": zone_result.get("strip_rects", []),
+    }
+
+
+# Named acquisition-condition variants for generate_sample_family(): the same
+# physical scene (fixed structure + fixed Reference crop), imaged under
+# different conditions -- demonstrates that one Reference is findable across
+# a range of degraded Search images, not just the one it happened to be cut
+# from. Each entry overrides a subset of GenerationParams fields.
+SEARCH_VARIANTS = [
+    {"label": "clean", "dose_search": 900.0, "shear_amplitude_px": 0.3, "drift_jitter_px": 0.15},
+    {"label": "low_dose", "dose_search": 55.0, "shear_amplitude_px": 1.0, "drift_jitter_px": 0.4},
+    {"label": "heavy_drift", "shear_amplitude_px": 4.5, "drift_jitter_px": 2.0},
+    {"label": "speckle_salt_pepper", "speckle_sigma": 0.3, "salt_pepper_prob": 0.012},
+    {"label": "charging", "charging_streak_prob": 3.5, "charging_streak_intensity": 2.2},
+]
+
+
+def generate_sample_family(
+    architecture: str,
+    base_seed: int,
+    params: GenerationParams,
+    variants: list | None = None,
+) -> dict:
+    """One fixed structure + one fixed Reference crop, rendered as several
+    Search images under different acquisition conditions (dose, drift,
+    speckle/impulse noise, charging). All variants share the same
+    fine canvas, crop location, and ground truth -- only how the Search was
+    *imaged* differs, which is the point: the same Reference should still be
+    findable across all of them.
+    """
+    variants = variants if variants is not None else SEARCH_VARIANTS
+
+    struct_rng = np.random.default_rng(base_seed)
+    zone_result = generate_fine_canvas_zoned(architecture, struct_rng, params)
+    fine_canvas = zone_result["canvas"]
+    x0, y0 = _pick_crop_origin(zone_result, params, struct_rng)
+    crop = fine_canvas[y0:y0 + REFERENCE_SIZE_PX, x0:x0 + REFERENCE_SIZE_PX]
+
+    ref_rng = np.random.default_rng(base_seed * 7919 + 1)
+    reference_img = sem_imaging.image_reference(
+        crop,
+        pixel_size_nm=PIXEL_SIZE_REF_NM,
+        spot_size_nm=params.beam_spot_size_nm,
+        dose=params.dose_reference,
+        rng=ref_rng,
+        detector_noise_sigma=params.detector_noise_sigma_ref,
+        drift_jitter_px=params.drift_jitter_px * 0.2,
+        astigmatism_ratio=params.astigmatism_ratio,
+        vignette_strength=params.vignette_strength * 0.5,
+        gamma=params.gamma,
+        barrel_distortion_k=params.barrel_distortion_k * 0.3,
+    )
+
+    box_w = box_h = REFERENCE_SIZE_PX // SCALE_FACTOR
+    gt_x0 = x0 / SCALE_FACTOR
+    gt_y0 = y0 / SCALE_FACTOR
+    gt_cx = gt_x0 + box_w / 2.0
+    gt_cy = gt_y0 + box_h / 2.0
+
+    search_variants = []
+    for i, overrides in enumerate(variants):
+        label = overrides.get("label", f"variant_{i}")
+        field_overrides = {k: v for k, v in overrides.items() if k != "label"}
+        variant_params = replace(params, **field_overrides)
+        variant_rng = np.random.default_rng(base_seed * 1_000_003 + i + 1)
+        search_img = sem_imaging.image_search(
+            fine_canvas,
+            pixel_size_ref_nm=PIXEL_SIZE_REF_NM,
+            pixel_size_search_nm=PIXEL_SIZE_SEARCH_NM,
+            spot_size_nm=variant_params.beam_spot_size_nm,
+            dose=variant_params.dose_search,
+            rng=variant_rng,
+            shear_amplitude_px=variant_params.shear_amplitude_px,
+            drift_jitter_px=variant_params.drift_jitter_px,
+            detector_noise_sigma=variant_params.detector_noise_sigma_search,
+            astigmatism_ratio=variant_params.astigmatism_ratio,
+            vignette_strength=variant_params.vignette_strength,
+            gamma=variant_params.gamma,
+            barrel_distortion_k=variant_params.barrel_distortion_k,
+            charging_streak_prob=variant_params.charging_streak_prob,
+            charging_streak_intensity=variant_params.charging_streak_intensity,
+            speckle_sigma=variant_params.speckle_sigma,
+            salt_pepper_prob=variant_params.salt_pepper_prob,
+        )
+        search_variants.append({
+            "label": label,
+            "search_img": search_img,
+            "params": variant_params.as_dict(),
+        })
+
+    return {
+        "reference_img": reference_img,
+        "search_variants": search_variants,
+        "gt_x": gt_cx,
+        "gt_y": gt_cy,
+        "gt_box": (gt_x0, gt_y0, box_w, box_h),
+        "architecture": architecture,
+        "base_seed": base_seed,
         "mat_rects": zone_result.get("mat_rects", []),
         "strip_rects": zone_result.get("strip_rects", []),
     }

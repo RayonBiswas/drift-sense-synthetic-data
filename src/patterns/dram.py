@@ -80,7 +80,18 @@ def generate_dram_canvas(
     rng: np.random.Generator,
     linewidth_bias_nm: float = 0.0,
     corner_rounding_px: float = 0.0,
-) -> np.ndarray:
+    return_layers: bool = False,
+):
+    """Render the DRAM cell array.
+
+    By default returns just the flattened grayscale composite (what a real
+    SEM would actually image -- it only sees the top exposed surface, not a
+    color-coded stack). With `return_layers=True`, also returns a dict of
+    the individual process layers (substrate, word_line, bit_line,
+    storage_contact) as separate masks -- useful for a teaching "exploded
+    stack" visualization or for QA'ing one layer at a time. The flattened
+    composite is bit-identical either way; layers are purely additive info.
+    """
     canvas = np.full((size_px, size_px), BACKGROUND, dtype=np.uint8)
 
     word_positions = _line_positions(size_px, preset["word_line_pitch_nm"], rng)
@@ -95,20 +106,41 @@ def generate_dram_canvas(
         linewidth_bias_nm=linewidth_bias_nm,
     )
 
+    word_line_layer = np.zeros((size_px, size_px), dtype=np.uint8)
+    word_line_layer[row_mask, :] = WORD_LINE_VAL
     canvas[row_mask, :] = np.maximum(canvas[row_mask, :], WORD_LINE_VAL)
+
+    bit_line_layer = np.zeros((size_px, size_px), dtype=np.uint8)
+    bit_line_layer[:, col_mask] = BIT_LINE_VAL
     canvas[:, col_mask] = np.maximum(canvas[:, col_mask], BIT_LINE_VAL)
 
+    contact_layer = np.zeros((size_px, size_px), dtype=np.uint8)
     base_radius = max(preset["contact_diameter_nm"] + linewidth_bias_nm, 1.0) / 2.0
     for i, wl in enumerate(word_positions):
         for j, bl in enumerate(bit_positions):
             if (i + j) % 2 == 0:
                 radius = max(1, int(round(base_radius * (1.0 + rng.normal(0, WIDTH_JITTER_FRACTION)))))
                 cv2.circle(canvas, (int(round(bl)), int(round(wl))), radius, CONTACT_VAL, -1)
+                cv2.circle(contact_layer, (int(round(bl)), int(round(wl))), radius, CONTACT_VAL, -1)
 
     if corner_rounding_px >= 0.5:
         k = max(1, int(round(corner_rounding_px)))
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * k + 1, 2 * k + 1))
         canvas = cv2.morphologyEx(canvas, cv2.MORPH_OPEN, kernel)
         canvas = cv2.morphologyEx(canvas, cv2.MORPH_CLOSE, kernel)
+        if return_layers:
+            for layer in (word_line_layer, bit_line_layer, contact_layer):
+                layer[:] = cv2.morphologyEx(
+                    cv2.morphologyEx(layer, cv2.MORPH_OPEN, kernel), cv2.MORPH_CLOSE, kernel
+                )
+
+    if return_layers:
+        layers = {
+            "substrate": np.full((size_px, size_px), BACKGROUND, dtype=np.uint8),
+            "word_line": word_line_layer,
+            "bit_line": bit_line_layer,
+            "storage_contact": contact_layer,
+        }
+        return canvas, layers
 
     return canvas

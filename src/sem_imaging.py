@@ -148,6 +148,35 @@ def add_detector_noise(img: np.ndarray, sigma: float, rng: np.random.Generator) 
     return np.clip(noisy, 0, 255).astype(np.uint8)
 
 
+def add_speckle_noise(img: np.ndarray, sigma: float, rng: np.random.Generator) -> np.ndarray:
+    """Multiplicative noise: out = img * (1 + N(0, sigma)). Distinct from
+    the additive Gaussian detector noise above -- a stand-in for detector
+    gain variation / coherent-interference-style artifacts, where noise
+    magnitude scales with signal brightness rather than being constant.
+    """
+    if sigma <= 0:
+        return img
+    img_f = img.astype(np.float64)
+    noise = rng.normal(0, sigma, size=img.shape)
+    out = img_f * (1.0 + noise)
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
+def add_salt_and_pepper_noise(img: np.ndarray, prob: float, rng: np.random.Generator) -> np.ndarray:
+    """Impulse noise: a fraction `prob` of pixels are forced to 0 or 255 --
+    a stand-in for dead/hot detector pixels or sudden discharge events,
+    structurally different from the smooth noise models above.
+    """
+    if prob <= 0:
+        return img
+    out = img.copy()
+    hit = rng.random(img.shape) < prob
+    salt = rng.random(img.shape) < 0.5
+    out[hit & salt] = 255
+    out[hit & ~salt] = 0
+    return out
+
+
 def image_reference(
     crop: np.ndarray,
     pixel_size_nm: float,
@@ -162,12 +191,16 @@ def image_reference(
     barrel_distortion_k: float = 0.0,
     charging_streak_prob: float = 0.0,
     charging_streak_intensity: float = 0.0,
+    speckle_sigma: float = 0.0,
+    salt_pepper_prob: float = 0.0,
 ) -> np.ndarray:
     img = gaussian_psf_blur(crop, spot_size_nm, pixel_size_nm, astigmatism_ratio)
     img = apply_raster_drift(img, shear_amplitude_px=0.0, jitter_std_px=drift_jitter_px, rng=rng)
     img = apply_barrel_distortion(img, barrel_distortion_k)
     img = add_shot_noise(img, dose, rng)
     img = add_detector_noise(img, detector_noise_sigma, rng)
+    img = add_speckle_noise(img, speckle_sigma, rng)
+    img = add_salt_and_pepper_noise(img, salt_pepper_prob, rng)
     img = apply_vignette(img, vignette_strength)
     img = apply_gamma(img, gamma)
     img = add_charging_streaks(img, charging_streak_prob, charging_streak_intensity, rng)
@@ -190,6 +223,8 @@ def image_search(
     barrel_distortion_k: float = 0.0,
     charging_streak_prob: float = 0.0,
     charging_streak_intensity: float = 0.0,
+    speckle_sigma: float = 0.0,
+    salt_pepper_prob: float = 0.0,
 ) -> np.ndarray:
     factor = int(round(pixel_size_search_nm / pixel_size_ref_nm))
     blurred = gaussian_psf_blur(full_canvas, spot_size_nm, pixel_size_ref_nm, astigmatism_ratio)
@@ -198,6 +233,8 @@ def image_search(
     distorted = apply_barrel_distortion(drifted, barrel_distortion_k)
     noisy = add_shot_noise(distorted, dose, rng)
     noisy = add_detector_noise(noisy, detector_noise_sigma, rng)
+    noisy = add_speckle_noise(noisy, speckle_sigma, rng)
+    noisy = add_salt_and_pepper_noise(noisy, salt_pepper_prob, rng)
     noisy = apply_vignette(noisy, vignette_strength)
     noisy = apply_gamma(noisy, gamma)
     noisy = add_charging_streaks(noisy, charging_streak_prob, charging_streak_intensity, rng)
