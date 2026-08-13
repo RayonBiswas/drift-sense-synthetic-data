@@ -177,6 +177,72 @@ def add_salt_and_pepper_noise(img: np.ndarray, prob: float, rng: np.random.Gener
     return out
 
 
+def add_quantization_noise(img: np.ndarray, bits: int = 8, rng: np.random.Generator = None) -> np.ndarray:
+    """Simulates reduced bit-depth (quantization + dithering).
+    Reduces precision to `bits` levels; adds dithering for smoothness.
+    """
+    if bits >= 8:
+        return img
+    img_f = img.astype(np.float64)
+    levels = (1 << bits) - 1  # 2^bits - 1
+    step = 255.0 / levels
+    quantized = np.round(img_f / step) * step
+    if rng is not None:
+        dither = rng.uniform(-step * 0.5, step * 0.5, size=img.shape)
+        quantized = quantized + dither
+    return np.clip(quantized, 0, 255).astype(np.uint8)
+
+
+def add_impulse_burst_noise(img: np.ndarray, burst_prob: float, burst_size: int = 3,
+                             rng: np.random.Generator = None) -> np.ndarray:
+    """Correlated impulse clusters (e.g., hot pixel clusters, discharge streaks).
+    A fraction `burst_prob` of pixel locations spawn a burst of adjacent impulses.
+    """
+    if burst_prob <= 0 or rng is None:
+        return img
+    out = img.copy().astype(np.float64)
+    h, w = img.shape
+    
+    # Random burst centers
+    n_bursts = max(1, int(np.ceil(burst_prob * h * w / (burst_size ** 2))))
+    centers_y = rng.integers(0, h, size=n_bursts)
+    centers_x = rng.integers(0, w, size=n_bursts)
+    
+    for cy, cx in zip(centers_y, centers_x):
+        # Random burst extent
+        size = rng.integers(2, burst_size + 1)
+        y_start = max(0, cy - size)
+        y_end = min(h, cy + size + 1)
+        x_start = max(0, cx - size)
+        x_end = min(w, cx + size + 1)
+        
+        # Blast white or black
+        if rng.random() < 0.5:
+            out[y_start:y_end, x_start:x_end] = 255
+        else:
+            out[y_start:y_end, x_start:x_end] = 0
+    
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
+def add_brownian_noise(img: np.ndarray, sigma: float, rng: np.random.Generator = None) -> np.ndarray:
+    """Low-frequency colored noise via cumulative summation (1/f-like).
+    Simulates slow thermal drift of pixel values.
+    """
+    if sigma <= 0 or rng is None:
+        return img
+    
+    h, w = img.shape
+    # Generate white noise and integrate along each axis for low-frequency structure
+    white_noise = rng.normal(0, sigma / 4.0, size=(h, w))
+    brown_y = np.cumsum(white_noise, axis=0)
+    brown_y = (brown_y - brown_y.min()) / (brown_y.max() - brown_y.min() + 1e-8) * (sigma * 2)
+    brown_y -= sigma
+    
+    out = img.astype(np.float64) + brown_y
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
 def image_reference(
     crop: np.ndarray,
     pixel_size_nm: float,
@@ -233,8 +299,7 @@ def image_search(
     distorted = apply_barrel_distortion(drifted, barrel_distortion_k)
     noisy = add_shot_noise(distorted, dose, rng)
     noisy = add_detector_noise(noisy, detector_noise_sigma, rng)
-    noisy = add_spec    git remote set-url github https://github.com/YOUR_USERNAME/YOUR_REPO.git
-    git push github mainkle_noise(noisy, speckle_sigma, rng)
+    noisy = add_speckle_noise(noisy, speckle_sigma, rng)
     noisy = add_salt_and_pepper_noise(noisy, salt_pepper_prob, rng)
     noisy = apply_vignette(noisy, vignette_strength)
     noisy = apply_gamma(noisy, gamma)
