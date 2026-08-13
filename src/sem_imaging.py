@@ -233,7 +233,8 @@ def image_search(
     distorted = apply_barrel_distortion(drifted, barrel_distortion_k)
     noisy = add_shot_noise(distorted, dose, rng)
     noisy = add_detector_noise(noisy, detector_noise_sigma, rng)
-    noisy = add_speckle_noise(noisy, speckle_sigma, rng)
+    noisy = add_spec    git remote set-url github https://github.com/YOUR_USERNAME/YOUR_REPO.git
+    git push github mainkle_noise(noisy, speckle_sigma, rng)
     noisy = add_salt_and_pepper_noise(noisy, salt_pepper_prob, rng)
     noisy = apply_vignette(noisy, vignette_strength)
     noisy = apply_gamma(noisy, gamma)
