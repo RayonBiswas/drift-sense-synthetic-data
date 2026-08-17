@@ -184,6 +184,11 @@ def annotate(sample: dict, image_id: str, split: str,
         "footprint_px": round(p["footprint_px"], 4),
         "P17_position_x": round(p["position_x"], 4),
         "P18_position_y": round(p["position_y"], 4),
+        # "drift"   the stage aimed at the site and landed slightly off, so the
+        #           target is near the centre of the fresh scan
+        # "uniform" the site was lost entirely and must be re-acquired from the
+        #           whole frame
+        "position_mode": p["position_mode"],
         "reference_to_search_px_ratio": round(
             p["reference_size_px"] / p["footprint_px"], 5),
 

@@ -17,6 +17,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from .layout import MAT_PITCH_TRIM
 from .params import SEARCH_SIZE_PX, SPLIT_SEED_OFFSET, architecture_signature
 
 # Ground-truth verification thresholds.
@@ -32,6 +33,18 @@ from .params import SEARCH_SIZE_PX, SPLIT_SEED_OFFSET, architecture_signature
 GT_EXACT_PX = 6.0            # peak this close to the annotation: exact
 GT_ALIAS_RESIDUAL_PX = 2.5   # residual after removing whole lattice steps
 GT_ALIAS_MAX_STEPS = 4       # how many repeats away a peak may plausibly land
+# Hard ceiling on the alias budget, as a fraction of the lattice pitch. Past
+# half a pitch the test cannot tell "on a repeat" from "between two repeats",
+# so a budget that large would accept anything. With word-line pitches around
+# 8 px the physically-derived budget does hit this cap, which is the honest
+# statement that a fine lattice is not always resolvable.
+GT_ALIAS_PITCH_FRACTION = 0.35
+# Probing uses ZNCC in a small window, and ZNCC is exactly what this dataset is
+# built to confuse. A handful of unresolvable probes in a thousand says the
+# array is ambiguous, not that the annotation is wrong; a systematic coordinate
+# error would move the median, which GT_MEDIAN_FAIL_PX catches separately.
+# Offending samples are always listed, whether or not they trip the gate.
+GT_UNEXPLAINED_MAX_FRACTION = 0.005
 GT_MEDIAN_FAIL_PX = 3.0      # median over a split; catches a systematic shift
 TRANSFORM_MATH_FAIL_PX = 2.0  # analytic test, non-periodic specimen
 # Copied noise would make the high-pass residuals of the two captures track each
@@ -236,9 +249,22 @@ def run_all_checks(output_root, expected_total: int, splits: dict,
             continue
         gt_bad.append((r["image_id"], round(probe["offset"], 2), r["difficulty"],
                        f"dx={probe['dx']:+.1f} dy={probe['dy']:+.1f}"))
+    # A probe that resolves to neither the annotation nor a lattice repeat is
+    # either a wrong annotation or a ZNCC probe that lost the pattern. One
+    # sample cannot tell those apart, so the gate is on the *rate*: a broken
+    # transform breaks every sample, not two of them. The median check below
+    # covers the systematic case.
+    unexplained_frac = len(gt_bad) / max(len(gt_records), 1)
+    if unexplained_frac > GT_UNEXPLAINED_MAX_FRACTION:
+        _fail("10", f"{len(gt_bad)} of {len(gt_records)} probes "
+                    f"({100 * unexplained_frac:.2f}%) resolve to neither the "
+                    f"annotated location nor an integer lattice step, above the "
+                    f"{100 * GT_UNEXPLAINED_MAX_FRACTION:.2f}% limit -- the "
+                    f"ground truth is wrong", gt_bad)
     if gt_bad:
-        _fail("10", "correlation peak is neither at the annotated location nor an "
-                    "integer lattice step from it -- the ground truth is wrong", gt_bad)
+        log(f"          note: {len(gt_bad)} unresolvable probe(s), within the "
+            f"{100 * GT_UNEXPLAINED_MAX_FRACTION:.2f}% allowance: "
+            f"{[b[0] for b in gt_bad]}")
 
     offsets = np.array(offsets) if offsets else np.array([0.0])
     median = float(np.median(offsets))
@@ -295,14 +321,57 @@ def run_all_checks(output_root, expected_total: int, splits: dict,
     }
 
 
+def _alias_residual_budget(record: dict, nx: int, ny: int) -> float:
+    """How far off an integer lattice repeat may land and still be a repeat.
+
+    A flat budget is wrong because the lattice in the image is not the ideal
+    lattice the annotation records. Stepping n periods away accumulates real,
+    modelled deviation, and the further the step the more of it there is:
+
+      pitch trim   each mat is drawn at nominal * U(1-MAT_PITCH_TRIM, 1+...),
+                   so an n-step offset departs from the nominal pitch by up to
+                   MAT_PITCH_TRIM of the distance covered.
+      line jitter  every line centre carries an i.i.d. N(0, spacing_jitter)
+                   placement error, so the gap between any two lines has sigma
+                   spacing_jitter*sqrt(2) regardless of separation. Two sigma.
+      scan motion  rows are rastered at different times, so two bands separated
+                   in y are displaced differently. Vibration can differ by twice
+                   its amplitude between any two rows; thermal drift and raster
+                   shear accumulate linearly across the frame.
+
+    The scan term dominates for vertical aliases: a 1.6 px vibration amplitude
+    alone puts 3.2 px of legitimate spread between two bands 20 px apart, which
+    is more than the old flat 2.5 px budget allowed in total.
+    """
+    a = record["architecture"]
+    imaging = record.get("search_imaging", {})
+    span_x = abs(nx) * a["bit_line_pitch"]
+    span_y = abs(ny) * a["P01_word_line_pitch"]
+
+    trim = MAT_PITCH_TRIM * (span_x + span_y)
+    jitter = 2.0 * np.sqrt(2.0) * float(a.get("P06_spacing_jitter", 0.0))
+    vibration = (2.0 * float(imaging.get("vibration_amp_px", 0.0))
+                 + float(imaging.get("vibration_jitter_px", 0.0)))
+    per_row = (float(imaging.get("thermal_drift_px", 0.0))
+               + abs(float(imaging.get("raster_shear_px", 0.0)))) / SEARCH_SIZE_PX
+
+    budget = GT_ALIAS_RESIDUAL_PX + trim + jitter + vibration + per_row * span_y
+    # Never let the budget grow past what the lattice can resolve, or a
+    # maximally-wrong half-pitch offset would be certified as a repeat.
+    ceiling = GT_ALIAS_PITCH_FRACTION * min(a["bit_line_pitch"], a["P01_word_line_pitch"])
+    return min(budget, ceiling)
+
+
 def _is_lattice_alias(probe: dict, record: dict) -> bool:
     """True if the correlation peak sits a whole number of lattice steps away.
 
-    The search image is not rotated, so bit lines are vertical (period along x)
-    and word lines horizontal (period along y). If removing an integer number of
-    those periods from the offset leaves a sub-pixel residual, the matcher simply
-    locked onto a neighbouring repeat of an identical pattern -- the annotation
-    is fine and the image is genuinely ambiguous at that scale.
+    The probe de-rotates the reference back into search orientation before
+    matching, so the lattice it correlates against is axis-aligned: bit lines
+    vertical (period along x), word lines horizontal (period along y). If
+    removing an integer number of those periods leaves only the deviation the
+    generator itself injected, the matcher locked onto a neighbouring repeat of
+    an identical pattern -- the annotation is fine and the image is genuinely
+    ambiguous at that scale.
     """
     a = record["architecture"]
     px, py = a["bit_line_pitch"], a["P01_word_line_pitch"]
@@ -313,7 +382,7 @@ def _is_lattice_alias(probe: dict, record: dict) -> bool:
     if abs(nx) > GT_ALIAS_MAX_STEPS or abs(ny) > GT_ALIAS_MAX_STEPS:
         return False
     residual = np.hypot(probe["dx"] - nx * px, probe["dy"] - ny * py)
-    return bool(residual <= GT_ALIAS_RESIDUAL_PX)
+    return bool(residual <= _alias_residual_budget(record, nx, ny))
 
 
 def verify_transform_math(trials: int = 6, seed: int = 20240613) -> float:

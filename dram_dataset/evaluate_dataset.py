@@ -181,7 +181,10 @@ def pr_curve(scores, corrects, n_total):
 
 def average_precision(precision, recall) -> float:
     order = np.argsort(recall)
-    trapezoid = getattr(np, "trapezoid", np.trapz)
+    # numpy 2.x renamed trapz -> trapezoid and removed the old name, so the
+    # lookup has to be lazy: getattr(np, "trapezoid", np.trapz) would evaluate
+    # np.trapz eagerly and raise before the fallback is ever needed.
+    trapezoid = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
     return float(trapezoid(np.asarray(precision)[order], np.asarray(recall)[order]))
 
 
