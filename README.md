@@ -42,6 +42,7 @@ python generate_dataset.py --num-samples 1000 --output ../my_dataset --seed 42
 | `--num-samples` | 1000 | total pairs, split 80 / 10 / 10 |
 | `--output` | `dataset` | output root directory |
 | `--seed` | 42 | master seed; reproduces the dataset |
+| `--architecture` | `dram` | device family: `dram` or `finfet`. Same imaging chain, ground truth and draw order for both, so a seed gives identical placement either way |
 | `--workers` | auto | processes; auto = `cpu_count-1` capped at 6, `1` = serial |
 | `--supersample` | 10 | fine-canvas factor; 6 is ~2x faster, ~1/3 the memory |
 | `--skip-qc` | off | skip the 12 checks |

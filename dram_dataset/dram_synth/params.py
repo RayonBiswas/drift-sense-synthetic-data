@@ -87,13 +87,42 @@ DRIFT_TRUNCATE_SIGMA = 3.0     # past this the move is a gross fault, not drift
 # Level 1 / Level 2 ranges (architecture + geometry; difficulty-independent)
 # --------------------------------------------------------------------------- #
 
+ARCHITECTURES = ("dram", "finfet")
+
+# P01-P05 mean the same thing for both architectures -- a primary pitch, a
+# secondary pitch expressed as a multiple of it, a line width as a fraction of
+# its own pitch, a contact size, and a block extent. Only the *ranges* differ,
+# so one parameter vector and one renderer serve both.
+#
+#   dram    word lines (horizontal) x bit lines (vertical), contacts on the
+#           intersections. The 1.5 ratio is the 6F^2 folded-bitline cell (2F x 3F).
+#   finfet  fins (vertical) x gate stripes (horizontal), contacts in the
+#           source/drain diffusion *between* gates. The ~1.87 ratio is contacted
+#           poly pitch over fin pitch, which holds to within 4% across every
+#           node in the 7 nm - 45 nm preset family this replaces.
 ARCH_RANGES = {
-    "word_line_pitch": (6.0, 14.0),          # P01, world units
-    "bit_to_word_pitch_ratio": (1.30, 1.80),  # P02
-    "line_width_frac": (0.34, 0.54),          # P03
-    "contact_diameter_frac": (0.30, 0.62),    # P04
-    "block_size": (90.0, 320.0),              # world units; P05 derives from this
-    "strip_width": (6.0, 18.0),               # peripheral/routing strip width
+    "dram": {
+        "word_line_pitch": (6.0, 14.0),           # P01, world units
+        "bit_to_word_pitch_ratio": (1.30, 1.80),  # P02
+        "line_width_frac": (0.34, 0.54),          # P03
+        "contact_diameter_frac": (0.30, 0.62),    # P04
+        "block_size": (90.0, 320.0),              # world units; P05 derives from this
+        "strip_width": (6.0, 18.0),               # peripheral/routing strip width
+    },
+    "finfet": {
+        # fin pitch, world units. 40-140 nm across the preset family at the
+        # search image's 10 nm/px gives 4-14 world units.
+        "word_line_pitch": (4.0, 14.0),           # P01 -> fin pitch
+        # contacted poly pitch / fin pitch: 1.833-1.900 across the presets.
+        "bit_to_word_pitch_ratio": (1.80, 1.95),  # P02 -> gate pitch ratio
+        # fin_width/fin_pitch is 0.325-0.350 and gate_length/gate_pitch is
+        # 0.307-0.316, so a single fraction covers both within tolerance.
+        "line_width_frac": (0.29, 0.37),          # P03
+        # contact_size/fin_pitch: 0.542-0.600 across the presets.
+        "contact_diameter_frac": (0.52, 0.62),    # P04
+        "block_size": (90.0, 320.0),
+        "strip_width": (6.0, 18.0),
+    },
 }
 
 GEOM_RANGES = {
@@ -294,24 +323,35 @@ def _imaging_block(rng: np.random.Generator, tier: dict, side: str,
     }
 
 
-def sample_parameters(sample_seed: int, difficulty: str) -> dict:
+def sample_parameters(sample_seed: int, difficulty: str,
+                      architecture: str = "dram") -> dict:
     """Draw the full P01-P20 parameter set for one sample.
 
     Everything is drawn from continuous distributions off a per-sample seed, so
     two samples sharing an identical parameter vector is a measure-zero event --
     this is what keeps the dataset from degenerating into one pattern repeated
     1000 times with different noise.
+
+    `architecture` selects the range table only. The number and order of random
+    draws is identical for every architecture, so a given seed produces the same
+    imaging, placement and noise for all of them -- and, in particular, the DRAM
+    stream is unchanged from before FinFET existed.
     """
+    if architecture not in ARCH_RANGES:
+        raise ValueError(
+            f"unknown architecture {architecture!r}; expected one of {ARCHITECTURES}")
+
     seeds = sample_seeds(sample_seed)
     rng = np.random.default_rng(seeds["param_seed"])
     tier = TIERS[difficulty]
+    arch = ARCH_RANGES[architecture]
 
     # ---- Level 1: architecture ------------------------------------------- #
-    word_line_pitch = _u(rng, ARCH_RANGES["word_line_pitch"])                 # P01
-    bit_ratio = _u(rng, ARCH_RANGES["bit_to_word_pitch_ratio"])               # P02
-    line_width_frac = _u(rng, ARCH_RANGES["line_width_frac"])                 # P03
-    contact_diameter_frac = _u(rng, ARCH_RANGES["contact_diameter_frac"])     # P04
-    block_size = _u(rng, ARCH_RANGES["block_size"])
+    word_line_pitch = _u(rng, arch["word_line_pitch"])                        # P01
+    bit_ratio = _u(rng, arch["bit_to_word_pitch_ratio"])                      # P02
+    line_width_frac = _u(rng, arch["line_width_frac"])                        # P03
+    contact_diameter_frac = _u(rng, arch["contact_diameter_frac"])            # P04
+    block_size = _u(rng, arch["block_size"])
     block_line_count = int(max(round(block_size / word_line_pitch), 4))       # P05
 
     # ---- Level 2: geometry ------------------------------------------------ #
@@ -351,6 +391,7 @@ def sample_parameters(sample_seed: int, difficulty: str) -> dict:
     reference_size_px = int(rng.integers(REFERENCE_SIZE_RANGE[0], REFERENCE_SIZE_RANGE[1] + 1))
 
     return {
+        "architecture": architecture,
         "difficulty": difficulty,
         "sample_seed": int(sample_seed),
         "seeds": seeds,
@@ -363,7 +404,7 @@ def sample_parameters(sample_seed: int, difficulty: str) -> dict:
         "contact_diameter_frac": contact_diameter_frac,
         "block_line_count": block_line_count,
         "block_size": block_size,
-        "strip_width": _u(rng, ARCH_RANGES["strip_width"]),
+        "strip_width": _u(rng, arch["strip_width"]),
 
         # Level 2
         "spacing_jitter": spacing_jitter,
@@ -399,6 +440,7 @@ def architecture_signature(params: dict) -> tuple:
     """A rounded fingerprint of a sample's Level 1+2 geometry, used by the
     leakage check to confirm that no geometric combination is reused."""
     return (
+        params.get("architecture", "dram"),
         round(params["word_line_pitch"], 4),
         round(params["bit_to_word_pitch_ratio"], 4),
         round(params["line_width_frac"], 4),

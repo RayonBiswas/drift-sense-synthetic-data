@@ -70,10 +70,16 @@ def _reference_window(fine: np.ndarray, params: dict, s: int) -> tuple:
     return window, corners_world
 
 
-def build_sample(sample_seed: int, difficulty: str, supersample: int = 10) -> dict:
+def build_sample(sample_seed: int, difficulty: str, supersample: int = 10,
+                 architecture: str = "dram") -> dict:
     """Generate one complete sample: both images, the ground truth and the
-    full parameter record."""
-    params = sample_parameters(sample_seed, difficulty)
+    full parameter record.
+
+    `architecture` is "dram" or "finfet". It changes only what is rasterized
+    onto the specimen canvas -- the imaging chain, the ground-truth algebra and
+    the random draw sequence are identical for both.
+    """
+    params = sample_parameters(sample_seed, difficulty, architecture)
     seeds = params["seeds"]
     s = int(supersample)
 
@@ -147,6 +153,11 @@ def annotate(sample: dict, image_id: str, split: str,
     return {
         "image_id": image_id,
         "split": split,
+        # Which device family was rasterized: "dram" or "finfet". Named
+        # `architecture_kind` because `architecture` below is already taken by
+        # the P01-P08 geometry block, and datasets generated before FinFET
+        # existed must stay readable.
+        "architecture_kind": p.get("architecture", "dram"),
         "reference_filename": reference_filename,
         "search_filename": search_filename,
 
@@ -211,7 +222,8 @@ def render_one_sample(job: dict) -> dict:
     dict-argument so it is picklable for multiprocessing on Windows (spawn)."""
     import os
 
-    sample = build_sample(job["sample_seed"], job["difficulty"], job["supersample"])
+    sample = build_sample(job["sample_seed"], job["difficulty"], job["supersample"],
+                          job.get("architecture", "dram"))
 
     ref_name = f"{job['image_id']}.png"
     search_name = f"{job['image_id']}.png"

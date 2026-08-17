@@ -11,23 +11,13 @@ are applied per-image since reference and search are captured differently.
 Default collapse_threshold_nm=10 is tied to the search image's 10 nm/px
 resolution: a 10 nm gap is exactly 1 px there, i.e. right at the edge of what
 that image can physically resolve as two separate structures.
+
+The implementation is the canonical engine's -- the two copies were verified to
+produce identical decisions over 2000 draws from the same seed before being
+collapsed into one. Only the argument *names* differed (nm here, world units
+there); the rule is the same, so it is re-exported rather than reimplemented.
 """
 
-import numpy as np
+from dram_dataset.dram_synth.random import maybe_collapse_gap  # noqa: F401
 
-
-def maybe_collapse_gap(
-    gap_nm: float,
-    threshold_nm: float,
-    rng: np.random.Generator,
-    collapse_prob: float = 0.7,
-) -> bool:
-    """Decide whether a gap between two adjacent lines should bridge/merge.
-
-    Gaps at or above threshold never collapse. Gaps below threshold collapse
-    with `collapse_prob`, so the effect is visible but not deterministic
-    (mirrors real process variation).
-    """
-    if gap_nm >= threshold_nm:
-        return False
-    return bool(rng.random() < collapse_prob)
+__all__ = ["maybe_collapse_gap"]

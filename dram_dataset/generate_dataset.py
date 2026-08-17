@@ -42,6 +42,10 @@ def parse_args():
                    help="total image pairs across all splits (default: 1000)")
     p.add_argument("--output", default="dataset", help="output root directory")
     p.add_argument("--seed", type=int, default=42, help="master random seed")
+    p.add_argument("--architecture", default="dram", choices=list(P.ARCHITECTURES),
+                   help="device family to rasterize (default: dram). The imaging "
+                        "chain, ground truth and random draw order are identical "
+                        "for both, so a seed gives the same placement either way.")
     p.add_argument("--workers", type=int, default=0,
                    help="worker processes; 0 = auto (cpu_count-1, capped at 6), 1 = serial")
     p.add_argument("--supersample", type=int, default=10,
@@ -54,6 +58,12 @@ def parse_args():
     return p.parse_args()
 
 
+ARCHITECTURE_DESCRIPTION = {
+    "dram": "DRAM (folded-bitline 6F^2 cell array)",
+    "finfet": "FinFET (fin array crossed by contacted poly gate stripes)",
+}
+
+
 def split_sizes(total: int) -> dict:
     """Allocate `total` across the splits, giving any remainder to train."""
     sizes = {s: int(total * r) for s, r in SPLIT_RATIOS.items()}
@@ -61,7 +71,8 @@ def split_sizes(total: int) -> dict:
     return sizes
 
 
-def build_jobs(root: Path, sizes: dict, master_seed: int, supersample: int) -> list:
+def build_jobs(root: Path, sizes: dict, master_seed: int, supersample: int,
+               architecture: str = "dram") -> list:
     """One job per sample. Image ids run continuously across the whole dataset,
     so no id or filename can collide between splits."""
     jobs, running = [], 0
@@ -76,6 +87,7 @@ def build_jobs(root: Path, sizes: dict, master_seed: int, supersample: int) -> l
                 "image_id": f"sample_{running:06d}",
                 "sample_seed": P.make_sample_seed(master_seed, split, i),
                 "difficulty": difficulties[i],
+                "architecture": architecture,
                 "supersample": supersample,
                 "reference_dir": str(root / split / "references"),
                 "search_dir": str(root / split / "searches"),
@@ -96,7 +108,8 @@ def write_config(root: Path, args, sizes: dict, elapsed: float) -> dict:
     config = {
         "generator": "dram_synth",
         "version": "1.0.0",
-        "architecture": "DRAM (folded-bitline cell array)",
+        "architecture": ARCHITECTURE_DESCRIPTION[args.architecture],
+        "architecture_kind": args.architecture,
         "master_seed": args.seed,
         "num_samples": args.num_samples,
         "split_sizes": sizes,
@@ -110,7 +123,7 @@ def write_config(root: Path, args, sizes: dict, elapsed: float) -> dict:
         "image_format": "PNG, 8-bit grayscale",
         "difficulty_mix": P.DIFFICULTY_MIX,
         "parameter_ranges": {
-            "architecture_L1": P.ARCH_RANGES,
+            "architecture_L1": P.ARCH_RANGES[args.architecture],
             "geometry_L2": P.GEOM_RANGES,
             "defects_L2": P.DEFECT_RANGES,
             "imaging_sem_scan_L3_L4_P19_P20": P.TIERS,
@@ -167,7 +180,7 @@ def summarize(all_records: list, sizes: dict, config: dict, qc: dict, root: Path
     print(f"Validation:           {sizes['validation']}")
     print(f"Test:                 {sizes['test']}")
     print(f"Image size:           {P.SEARCH_SIZE_PX} x {P.SEARCH_SIZE_PX}")
-    print(f"Architecture:         DRAM")
+    print(f"Architecture:         {config.get('architecture', 'DRAM')}")
     print(f"Average noise level:  {search_noise.mean():.2f} sigma (search), "
           f"{ref_noise.mean():.2f} sigma (reference)")
     print(f"Average blur:         {search_blur.mean():.2f} px (search), "
@@ -206,7 +219,7 @@ def main() -> int:
     print(f"  master seed {args.seed}, supersample {args.supersample}x, {workers} worker(s)")
 
     make_dirs(root, sizes)
-    jobs = build_jobs(root, sizes, args.seed, args.supersample)
+    jobs = build_jobs(root, sizes, args.seed, args.supersample, args.architecture)
 
     started = time.time()
     results = {}

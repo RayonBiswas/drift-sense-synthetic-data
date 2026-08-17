@@ -35,12 +35,36 @@ from .params import SEARCH_SIZE_PX
 from .random import maybe_collapse_gap
 
 # Grey levels of the material stack, chosen for high contrast between layers.
+# The two architectures use near-identical levels -- both are "dark substrate,
+# two brighter line layers, brightest contacts" -- so they are kept as one table
+# keyed by architecture rather than as two divergent sets of constants.
 BACKGROUND = 32
 WORD_LINE = 138
 BIT_LINE = 168
 CONTACT = 222
 STRIP_BASE = 88
 STRIP_LINE = 118
+
+# FinFET stack: substrate / fin / gate / contact.
+FINFET_BACKGROUND = 40
+FIN = 150
+GATE = 170
+FINFET_CONTACT = 225
+
+LEVELS = {
+    "dram": {
+        "background": BACKGROUND,
+        "primary": WORD_LINE,      # word lines, horizontal
+        "secondary": BIT_LINE,     # bit lines, vertical
+        "contact": CONTACT,
+    },
+    "finfet": {
+        "background": FINFET_BACKGROUND,
+        "primary": GATE,           # gate stripes, horizontal
+        "secondary": FIN,          # fins, vertical
+        "contact": FINFET_CONTACT,
+    },
+}
 
 STRIP_ROUTING_PITCH = 26.0     # world units
 STRIP_ROUTING_WIDTH = 2.2      # world units
@@ -131,37 +155,99 @@ def _strip_texture(n_fine: int, s: int, rng: np.random.Generator) -> np.ndarray:
     return canvas
 
 
+def _contact_sites(arch: str, row_pos: np.ndarray, col_pos: np.ndarray,
+                   h: int, w: int, margin: float, parity: int) -> list:
+    """Where the contacts go, as (x, y) centres in mat-local coordinates.
+
+    This is the one place the two architectures genuinely diverge:
+
+      dram    a storage-node contact lands on the *intersection* of a word line
+              and a bit line -- one per two cells, hence the checkerboard.
+      finfet  a source/drain contact lands on a fin, in the diffusion gap
+              *between* two consecutive gate stripes -- never on a gate.
+
+    Emitted in (row index, column index) order for DRAM so the per-contact
+    random draws downstream keep the sequence they had before FinFET existed.
+    """
+    sites = []
+    if arch == "dram":
+        for i, y in enumerate(row_pos):
+            if y < -margin or y > h + margin:
+                continue
+            for j, x in enumerate(col_pos):
+                if x < -margin or x > w + margin:
+                    continue
+                if (i + j) % 2 != parity:
+                    continue
+                sites.append((x, y))
+        return sites
+
+    # finfet: iterate fins (columns), then the gaps between gate stripes (rows)
+    for i, x in enumerate(col_pos):
+        if x < -margin or x > w + margin:
+            continue
+        for j in range(len(row_pos) - 1):
+            if (i + j) % 2 != parity:
+                continue
+            y = (row_pos[j] + row_pos[j + 1]) / 2.0
+            if y < -margin or y > h + margin:
+                continue
+            sites.append((x, y))
+    return sites
+
+
 def _draw_mat(canvas: np.ndarray, y0: int, y1: int, x0: int, x1: int,
               params: dict, s: int, rng: np.random.Generator, defects: dict) -> None:
-    """Rasterize one array block in place, into canvas[y0:y1, x0:x1]."""
+    """Rasterize one array block in place, into canvas[y0:y1, x0:x1].
+
+    Both architectures are the same drawing problem -- a set of horizontal lines,
+    a set of vertical lines, and contacts on a checkerboard -- so they share one
+    renderer. Only three things vary: which pitch runs which way, the grey
+    levels, and where the contacts sit relative to the lines.
+
+        dram    horizontal word lines at P01, vertical bit lines at P01 x P02
+        finfet  vertical fins at P01, horizontal gate stripes at P01 x P02
+
+    The draw sequence is identical in both cases, so a seed produces the same
+    lattice phases, jitter and defect pattern regardless of architecture.
+    """
     h, w = y1 - y0, x1 - x0
     if h <= 2 or w <= 2:
         return
+
+    arch = params.get("architecture", "dram")
+    levels = LEVELS[arch]
 
     # Each mat gets its own lattice phase and a slight pitch trim. Without this
     # the whole canvas is one perfect lattice and no crop is distinguishable
     # from any other -- localization would be genuinely ill-posed.
     pitch_mult = float(rng.uniform(1.0 - MAT_PITCH_TRIM, 1.0 + MAT_PITCH_TRIM))
-    word_pitch = params["word_line_pitch"] * pitch_mult * s
-    bit_pitch = params["bit_line_pitch"] * pitch_mult * s
-    phase_y = (params["phase_offset"][1] + rng.uniform(0, 1)) * word_pitch
-    phase_x = (params["phase_offset"][0] + rng.uniform(0, 1)) * bit_pitch
+    if arch == "dram":
+        # word lines run horizontally at the primary pitch
+        row_pitch = params["word_line_pitch"] * pitch_mult * s
+        col_pitch = params["bit_line_pitch"] * pitch_mult * s
+    else:
+        # fins run vertically at the primary pitch; gates are the wider CPP
+        row_pitch = params["bit_line_pitch"] * pitch_mult * s
+        col_pitch = params["word_line_pitch"] * pitch_mult * s
+    phase_y = (params["phase_offset"][1] + rng.uniform(0, 1)) * row_pitch
+    phase_x = (params["phase_offset"][0] + rng.uniform(0, 1)) * col_pitch
     jitter = params["spacing_jitter"] * s
 
-    word_pos = _line_positions(h, word_pitch, phase_y, jitter, rng)
-    bit_pos = _line_positions(w, bit_pitch, phase_x, jitter, rng)
+    row_pos = _line_positions(h, row_pitch, phase_y, jitter, rng)
+    col_pos = _line_positions(w, col_pitch, phase_x, jitter, rng)
 
-    word_width = params["line_width_frac"] * word_pitch
-    bit_width = params["line_width_frac"] * bit_pitch
+    row_width = params["line_width_frac"] * row_pitch
+    col_width = params["line_width_frac"] * col_pitch
 
     collapse_px = params.get("collapse_threshold", 0.0) * s
-    row_mask, _ = _line_mask(h, word_pos, word_width, rng, collapse_px, defects)
-    col_mask, _ = _line_mask(w, bit_pos, bit_width, rng, collapse_px, defects)
+    row_mask, _ = _line_mask(h, row_pos, row_width, rng, collapse_px, defects)
+    col_mask, _ = _line_mask(w, col_pos, col_width, rng, collapse_px, defects)
 
     sub = canvas[y0:y1, x0:x1]
-    sub[:] = BACKGROUND
-    sub[row_mask, :] = WORD_LINE
-    sub[:, col_mask] = np.maximum(sub[:, col_mask], BIT_LINE)
+    sub[:] = levels["background"]
+    sub[row_mask, :] = levels["primary"]
+    sub[:, col_mask] = np.maximum(sub[:, col_mask], levels["secondary"])
 
     density = params["defect_density"]
 
@@ -169,48 +255,52 @@ def _draw_mat(canvas: np.ndarray, y0: int, y1: int, x0: int, x1: int,
     if density > 0:
         n_breaks = rng.poisson(density * 12.0)
         for _ in range(int(n_breaks)):
-            if rng.random() < 0.5 and len(word_pos) > 0:
-                centre = word_pos[rng.integers(0, len(word_pos))]
-                lo = int(np.clip(centre - word_width, 0, h - 1))
-                hi = int(np.clip(centre + word_width, 0, h))
+            if rng.random() < 0.5 and len(row_pos) > 0:
+                centre = row_pos[rng.integers(0, len(row_pos))]
+                lo = int(np.clip(centre - row_width, 0, h - 1))
+                hi = int(np.clip(centre + row_width, 0, h))
                 span = int(rng.uniform(0.05, 0.30) * w)
                 cx = int(rng.uniform(0, max(w - span, 1)))
-                sub[lo:hi, cx:cx + span] = BACKGROUND
-            elif len(bit_pos) > 0:
-                centre = bit_pos[rng.integers(0, len(bit_pos))]
-                lo = int(np.clip(centre - bit_width, 0, w - 1))
-                hi = int(np.clip(centre + bit_width, 0, w))
+                sub[lo:hi, cx:cx + span] = levels["background"]
+            elif len(col_pos) > 0:
+                centre = col_pos[rng.integers(0, len(col_pos))]
+                lo = int(np.clip(centre - col_width, 0, w - 1))
+                hi = int(np.clip(centre + col_width, 0, w))
                 span = int(rng.uniform(0.05, 0.30) * h)
                 cy = int(rng.uniform(0, max(h - span, 1)))
-                sub[cy:cy + span, lo:hi] = BACKGROUND
+                sub[cy:cy + span, lo:hi] = levels["background"]
             defects["broken_line"] += 1
 
-    # --- storage-node contacts on a checkerboard of the intersections ------- #
-    radius_nom = max(params["contact_diameter_frac"] * word_pitch / 2.0, 1.0)
+    # --- contacts on a checkerboard ---------------------------------------- #
+    # Sized off the primary pitch in both cases: the storage-node landing pad
+    # scales with the word-line pitch, the source/drain contact with the fin
+    # pitch. That is `word_line_pitch` either way, which is row_pitch for DRAM
+    # and col_pitch for FinFET.
+    primary_pitch = row_pitch if arch == "dram" else col_pitch
+    radius_nom = max(params["contact_diameter_frac"] * primary_pitch / 2.0, 1.0)
     parity = int(rng.integers(0, 2))
-    for i, wy in enumerate(word_pos):
-        if wy < -radius_nom or wy > h + radius_nom:
+
+    for cx, cy in _contact_sites(arch, row_pos, col_pos, h, w, radius_nom, parity):
+        if density > 0 and rng.random() < density * 0.9:
+            defects["missing_contact"] += 1            # unlanded / open contact
             continue
-        for j, bx in enumerate(bit_pos):
-            if bx < -radius_nom or bx > w + radius_nom:
-                continue
-            if (i + j) % 2 != parity:
-                continue
 
-            if density > 0 and rng.random() < density * 0.9:
-                defects["missing_contact"] += 1        # unlanded / open contact
-                continue
+        if density > 0 and rng.random() < density * 0.9:
+            # misaligned contact: overlay-error style displacement
+            cx += rng.normal(0, 0.22 * col_pitch)
+            cy += rng.normal(0, 0.22 * row_pitch)
+            defects["displaced_contact"] += 1
 
-            cx, cy = bx, wy
-            if density > 0 and rng.random() < density * 0.9:
-                # misaligned contact: overlay-error style displacement
-                cx += rng.normal(0, 0.22 * bit_pitch)
-                cy += rng.normal(0, 0.22 * word_pitch)
-                defects["displaced_contact"] += 1
-
-            radius = radius_nom * (1.0 + rng.normal(0, WIDTH_JITTER_FRACTION))
-            cv2.circle(sub, (int(round(cx)), int(round(cy))),
-                       max(int(round(radius)), 1), CONTACT, -1)
+        radius = radius_nom * (1.0 + rng.normal(0, WIDTH_JITTER_FRACTION))
+        r = max(int(round(radius)), 1)
+        ix, iy = int(round(cx)), int(round(cy))
+        if arch == "dram":
+            # round storage-node pad
+            cv2.circle(sub, (ix, iy), r, levels["contact"], -1)
+        else:
+            # square source/drain contact bar
+            cv2.rectangle(sub, (ix - r, iy - r), (ix + r, iy + r),
+                          levels["contact"], -1)
 
 
 def _apply_blob_defects(canvas: np.ndarray, params: dict, s: int,
