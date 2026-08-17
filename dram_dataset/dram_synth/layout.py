@@ -46,6 +46,7 @@ STRIP_ROUTING_PITCH = 26.0     # world units
 STRIP_ROUTING_WIDTH = 2.2      # world units
 
 WIDTH_JITTER_FRACTION = 0.09   # per-line CD variation
+MAT_PITCH_TRIM = 0.02          # per-mat pitch deviation from nominal, +/- fraction
 
 
 def _line_positions(extent: float, pitch: float, phase: float,
@@ -140,7 +141,7 @@ def _draw_mat(canvas: np.ndarray, y0: int, y1: int, x0: int, x1: int,
     # Each mat gets its own lattice phase and a slight pitch trim. Without this
     # the whole canvas is one perfect lattice and no crop is distinguishable
     # from any other -- localization would be genuinely ill-posed.
-    pitch_mult = float(rng.uniform(0.98, 1.02))
+    pitch_mult = float(rng.uniform(1.0 - MAT_PITCH_TRIM, 1.0 + MAT_PITCH_TRIM))
     word_pitch = params["word_line_pitch"] * pitch_mult * s
     bit_pitch = params["bit_line_pitch"] * pitch_mult * s
     phase_y = (params["phase_offset"][1] + rng.uniform(0, 1)) * word_pitch

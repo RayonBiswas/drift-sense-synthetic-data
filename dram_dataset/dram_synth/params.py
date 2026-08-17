@@ -64,6 +64,26 @@ DIFFICULTIES = ("easy", "medium", "hard")
 DIFFICULTY_MIX = {"easy": 0.25, "medium": 0.50, "hard": 0.25}
 
 # --------------------------------------------------------------------------- #
+# Placement: where the stored site lands in the fresh scan
+# --------------------------------------------------------------------------- #
+# This is navigation-error recovery, not a hunt for a patch dropped anywhere in
+# the frame. The tool commands a move to a site it has visited before and the
+# stage lands slightly off, so on a revisit the target sits *near the centre* of
+# the freshly captured wide field. Each stage axis contributes an independent,
+# roughly zero-mean positioning error, which makes the per-axis miss Gaussian
+# and the radial miss Rayleigh-distributed.
+#
+# Placing the site uniformly across the frame -- which is what this generator
+# did originally -- models a different and less physical task, and it makes the
+# problem statement's "return the match closest to the centre of the Search
+# Image" rule carry no information at all. A minority of samples keep uniform
+# placement to cover the worst case, where the tool has lost the site entirely
+# and has to re-acquire it from the whole frame.
+DRIFT_FRACTION = 0.70          # share of samples that model a normal revisit
+DRIFT_SIGMA_PX = 110.0         # per-axis stage positioning error, search px
+DRIFT_TRUNCATE_SIGMA = 3.0     # past this the move is a gross fault, not drift
+
+# --------------------------------------------------------------------------- #
 # Level 1 / Level 2 ranges (architecture + geometry; difficulty-independent)
 # --------------------------------------------------------------------------- #
 
@@ -160,6 +180,25 @@ def _u(rng: np.random.Generator, lohi) -> float:
     """Uniform draw from a (low, high) tuple."""
     lo, hi = lohi
     return float(rng.uniform(lo, hi))
+
+
+def _drift_axis(rng: np.random.Generator, lo: float, hi: float) -> float:
+    """One axis of stage positioning error about the centre of the frame.
+
+    A truncated Gaussian: draws beyond DRIFT_TRUNCATE_SIGMA are redrawn rather
+    than clipped, because clipping would pile the whole tail onto the boundary
+    and put a spike of samples at exactly one offset. `lo`/`hi` keep the
+    ground-truth box inside the image; with sigma 110 px and a 3-sigma cut the
+    bound is only reached for an unusually large footprint.
+    """
+    mid = SEARCH_SIZE_PX / 2.0
+    limit = DRIFT_TRUNCATE_SIGMA * DRIFT_SIGMA_PX
+    for _ in range(64):
+        value = mid + float(rng.normal(0.0, DRIFT_SIGMA_PX))
+        if abs(value - mid) <= limit and lo <= value <= hi:
+            return value
+    # Unreachable in practice; keeps the draw finite if the margins ever tighten.
+    return float(min(max(mid, lo), hi))
 
 
 def sample_seeds(sample_seed: int) -> dict:
@@ -299,8 +338,15 @@ def sample_parameters(sample_seed: int, difficulty: str) -> dict:
         abs(np.cos(np.deg2rad(rotation_deg))) + abs(np.sin(np.deg2rad(rotation_deg)))
     )
     margin = float(half_diag + 26.0)
-    position_x = float(rng.uniform(margin, SEARCH_SIZE_PX - margin))          # P17
-    position_y = float(rng.uniform(margin, SEARCH_SIZE_PX - margin))          # P18
+    lo, hi = margin, SEARCH_SIZE_PX - margin
+    if rng.random() < DRIFT_FRACTION:
+        position_mode = "drift"                                               # P17/P18
+        position_x = _drift_axis(rng, lo, hi)
+        position_y = _drift_axis(rng, lo, hi)
+    else:
+        position_mode = "uniform"
+        position_x = float(rng.uniform(lo, hi))
+        position_y = float(rng.uniform(lo, hi))
 
     reference_size_px = int(rng.integers(REFERENCE_SIZE_RANGE[0], REFERENCE_SIZE_RANGE[1] + 1))
 
@@ -332,6 +378,7 @@ def sample_parameters(sample_seed: int, difficulty: str) -> dict:
         # Level 5
         "position_x": position_x,
         "position_y": position_y,
+        "position_mode": position_mode,
 
         # Stored reference resolution
         "reference_size_px": reference_size_px,

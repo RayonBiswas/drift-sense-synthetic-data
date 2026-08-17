@@ -1,0 +1,45 @@
+{
+  "step": 0,
+  "name": "baseline_zncc",
+  "gate": "all 200 held-out pairs scored; no accuracy threshold",
+  "status": "PASS",
+  "headline": "n=200 acc@5px=33.0% median=222.4px 2.54s/pair",
+  "metrics": {
+    "n": 200,
+    "accuracy_pct": {
+      "@1px": 29.5,
+      "@3px": 33.0,
+      "@5px": 33.0,
+      "@10px": 33.0,
+      "@20px": 34.0,
+      "@50px": 37.0
+    },
+    "median_error_px": 222.36,
+    "p90_error_px": 710.44,
+    "max_error_px": 1095.93,
+    "seconds_per_pair": {
+      "mean": 2.541,
+      "median": 2.333,
+      "p95": 3.525,
+      "wall_clock_6_workers": 0.424
+    },
+    "mean_zncc_score": {
+      "hits": 0.718,
+      "misses": 0.63
+    },
+    "failure_anatomy": {
+      "n_misses": 134,
+      "near_10_30px": 2,
+      "mid_30_150px": 23,
+      "gross_over_150px": 109,
+      "lattice_explained": 44,
+      "lattice_explained_pct": 32.8,
+      "lattice_chance_level_pct": 23.0
+    },
+    "per_difficulty_accuracy_at_10px": {
+      "medium": 36.0,
+      "easy": 42.0,
+      "hard": 18.0
+    }
+  }
+}
