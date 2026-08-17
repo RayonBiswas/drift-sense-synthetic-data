@@ -321,6 +321,27 @@ def run_all_checks(output_root, expected_total: int, splits: dict,
     }
 
 
+def _lattice_periods(record: dict) -> tuple:
+    """The lattice period along x and along y, in search pixels.
+
+    Which pitch runs which way depends on the architecture:
+
+      dram    bit lines are vertical  -> period along x is the bit-line pitch
+              word lines are horizontal -> period along y is the word-line pitch
+      finfet  fins are vertical       -> period along x is the fin pitch (P01)
+              gates are horizontal    -> period along y is the gate pitch (P01 x P02)
+
+    Records written before FinFET existed have no `architecture_kind`, so they
+    default to DRAM and keep their original interpretation.
+    """
+    a = record["architecture"]
+    word = a["P01_word_line_pitch"]     # primary pitch: word line / fin
+    other = a["bit_line_pitch"]         # secondary pitch: bit line / gate
+    if record.get("architecture_kind", "dram") == "finfet":
+        return word, other              # fins vertical, gates horizontal
+    return other, word                  # bit lines vertical, word lines horizontal
+
+
 def _alias_residual_budget(record: dict, nx: int, ny: int) -> float:
     """How far off an integer lattice repeat may land and still be a repeat.
 
@@ -345,8 +366,9 @@ def _alias_residual_budget(record: dict, nx: int, ny: int) -> float:
     """
     a = record["architecture"]
     imaging = record.get("search_imaging", {})
-    span_x = abs(nx) * a["bit_line_pitch"]
-    span_y = abs(ny) * a["P01_word_line_pitch"]
+    period_x, period_y = _lattice_periods(record)
+    span_x = abs(nx) * period_x
+    span_y = abs(ny) * period_y
 
     trim = MAT_PITCH_TRIM * (span_x + span_y)
     jitter = 2.0 * np.sqrt(2.0) * float(a.get("P06_spacing_jitter", 0.0))
@@ -358,7 +380,7 @@ def _alias_residual_budget(record: dict, nx: int, ny: int) -> float:
     budget = GT_ALIAS_RESIDUAL_PX + trim + jitter + vibration + per_row * span_y
     # Never let the budget grow past what the lattice can resolve, or a
     # maximally-wrong half-pitch offset would be certified as a repeat.
-    ceiling = GT_ALIAS_PITCH_FRACTION * min(a["bit_line_pitch"], a["P01_word_line_pitch"])
+    ceiling = GT_ALIAS_PITCH_FRACTION * min(period_x, period_y)
     return min(budget, ceiling)
 
 
@@ -366,23 +388,34 @@ def _is_lattice_alias(probe: dict, record: dict) -> bool:
     """True if the correlation peak sits a whole number of lattice steps away.
 
     The probe de-rotates the reference back into search orientation before
-    matching, so the lattice it correlates against is axis-aligned: bit lines
-    vertical (period along x), word lines horizontal (period along y). If
+    matching, so the lattice it correlates against is axis-aligned; which pitch
+    supplies the x period and which the y period is architecture-dependent and
+    comes from `_lattice_periods`. If
     removing an integer number of those periods leaves only the deviation the
     generator itself injected, the matcher locked onto a neighbouring repeat of
     an identical pattern -- the annotation is fine and the image is genuinely
     ambiguous at that scale.
     """
-    a = record["architecture"]
-    px, py = a["bit_line_pitch"], a["P01_word_line_pitch"]
+    px, py = _lattice_periods(record)
     if px <= 0 or py <= 0:
         return False
     nx = round(probe["dx"] / px)
     ny = round(probe["dy"] / py)
     if abs(nx) > GT_ALIAS_MAX_STEPS or abs(ny) > GT_ALIAS_MAX_STEPS:
         return False
-    residual = np.hypot(probe["dx"] - nx * px, probe["dy"] - ny * py)
-    return bool(residual <= _alias_residual_budget(record, nx, ny))
+
+    # Per axis, not radially. The two periods can differ by nearly 2x -- a
+    # FinFET gate pitch is ~1.87 fin pitches -- and a radial test forces the
+    # coarse axis to live within the fine axis's tolerance, which rejects
+    # genuine repeats along the coarse one. Each axis is judged against what
+    # its *own* pitch can resolve; beyond half a period "on a repeat" and
+    # "between two repeats" are indistinguishable, so the fraction caps it.
+    budget = _alias_residual_budget(record, nx, ny)
+    res_x = abs(probe["dx"] - nx * px)
+    res_y = abs(probe["dy"] - ny * py)
+    limit_x = min(budget, GT_ALIAS_PITCH_FRACTION * px)
+    limit_y = min(budget, GT_ALIAS_PITCH_FRACTION * py)
+    return bool(res_x <= limit_x and res_y <= limit_y)
 
 
 def verify_transform_math(trials: int = 6, seed: int = 20240613) -> float:
