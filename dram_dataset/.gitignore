@@ -1,0 +1,8 @@
+# Generated datasets are large (~1 GB for 1000 pairs) and fully reproducible
+# from generate_dataset.py + the master seed, so they are not tracked.
+dataset/
+debug_dataset/
+*_dataset/
+visualizations/
+__pycache__/
+*.pyc

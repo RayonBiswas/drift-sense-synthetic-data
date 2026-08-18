@@ -1,0 +1,49 @@
+{
+  "summary": {
+    "n": 2,
+    "tolerance_px": 3.0,
+    "success_rate_pct": 100.0,
+    "mean_error_px": 0.5698728356829585,
+    "median_error_px": 0.5698728356829585,
+    "max_error_px": 0.5819808733785798,
+    "mean_time_ms": 1763.092150000375,
+    "p95_time_ms": 1702.0568000007188,
+    "by_style": {
+      "dram": {
+        "n": 2,
+        "success_rate_pct": 100.0,
+        "mean_error_px": 0.5698728356829585
+      }
+    }
+  },
+  "records": [
+    {
+      "index": 0,
+      "style": "dram",
+      "seed": 1000,
+      "gt_x": 821.5017370354977,
+      "gt_y": 265.29489266553855,
+      "pred_x": 821.0,
+      "pred_y": 265.0,
+      "error_px": 0.5819808733785798,
+      "success": true,
+      "n_candidates": 6,
+      "score": 0.8688479661941528,
+      "time_sec": 1.7020568000007188
+    },
+    {
+      "index": 1,
+      "style": "dram",
+      "seed": 1001,
+      "gt_x": 423.54825606915495,
+      "gt_y": 185.1025517065125,
+      "pred_x": 423.0,
+      "pred_y": 185.0,
+      "error_px": 0.5577647979873372,
+      "success": true,
+      "n_candidates": 1,
+      "score": 0.6869543790817261,
+      "time_sec": 1.8241275000000314
+    }
+  ]
+}
