@@ -1,0 +1,494 @@
+{
+  "generator": "dram_synth",
+  "version": "1.0.0",
+  "architecture": "DRAM (folded-bitline cell array)",
+  "master_seed": 42,
+  "num_samples": 1000,
+  "split_sizes": {
+    "train": 800,
+    "validation": 100,
+    "test": 100
+  },
+  "split_ratios": {
+    "train": 0.8,
+    "validation": 0.1,
+    "test": 0.1
+  },
+  "split_seed_offsets": {
+    "train": 0,
+    "validation": 1000003,
+    "test": 2000003
+  },
+  "search_image_size_px": [
+    1000,
+    1000
+  ],
+  "reference_image_size_range_px": [
+    100,
+    256
+  ],
+  "nominal_footprint_px": 100.0,
+  "supersample_factor": 10,
+  "magnification_ratio_canvas_to_search": 10,
+  "image_format": "PNG, 8-bit grayscale",
+  "difficulty_mix": {
+    "easy": 0.25,
+    "medium": 0.5,
+    "hard": 0.25
+  },
+  "parameter_ranges": {
+    "architecture_L1": {
+      "word_line_pitch": [
+        6.0,
+        14.0
+      ],
+      "bit_to_word_pitch_ratio": [
+        1.3,
+        1.8
+      ],
+      "line_width_frac": [
+        0.34,
+        0.54
+      ],
+      "contact_diameter_frac": [
+        0.3,
+        0.62
+      ],
+      "block_size": [
+        90.0,
+        320.0
+      ],
+      "strip_width": [
+        6.0,
+        18.0
+      ]
+    },
+    "geometry_L2": {
+      "spacing_jitter": [
+        0.02,
+        0.35
+      ]
+    },
+    "defects_L2": {
+      "easy": {
+        "p_any": 0.2,
+        "density": [
+          0.004,
+          0.015
+        ]
+      },
+      "medium": {
+        "p_any": 0.5,
+        "density": [
+          0.01,
+          0.035
+        ]
+      },
+      "hard": {
+        "p_any": 0.75,
+        "density": [
+          0.03,
+          0.08
+        ]
+      }
+    },
+    "imaging_sem_scan_L3_L4_P19_P20": {
+      "easy": {
+        "scale": [
+          0.95,
+          1.05
+        ],
+        "rotation_deg": [
+          -1.5,
+          1.5
+        ],
+        "blur_sigma": {
+          "ref": [
+            0.35,
+            0.7
+          ],
+          "search": [
+            0.5,
+            0.95
+          ]
+        },
+        "brightness": {
+          "ref": [
+            -8,
+            8
+          ],
+          "search": [
+            -10,
+            10
+          ]
+        },
+        "contrast": {
+          "ref": [
+            0.95,
+            1.08
+          ],
+          "search": [
+            0.92,
+            1.1
+          ]
+        },
+        "edge_gain": {
+          "ref": [
+            0.2,
+            0.55
+          ],
+          "search": [
+            0.18,
+            0.5
+          ]
+        },
+        "shading_amplitude": {
+          "ref": [
+            0.02,
+            0.06
+          ],
+          "search": [
+            0.03,
+            0.08
+          ]
+        },
+        "noise_sigma": {
+          "ref": [
+            1.0,
+            3.0
+          ],
+          "search": [
+            2.0,
+            5.0
+          ]
+        },
+        "dose": {
+          "ref": [
+            1500,
+            4000
+          ],
+          "search": [
+            500,
+            1500
+          ]
+        },
+        "thermal_drift": {
+          "ref": [
+            0.0,
+            0.3
+          ],
+          "search": [
+            0.2,
+            1.0
+          ]
+        },
+        "vibration_amp": {
+          "ref": [
+            0.0,
+            0.15
+          ],
+          "search": [
+            0.05,
+            0.35
+          ]
+        },
+        "salt_pepper_prob": {
+          "ref": [
+            0.0,
+            0.0005
+          ],
+          "search": [
+            0.0,
+            0.001
+          ]
+        },
+        "impulse_burst_prob": {
+          "ref": [
+            0.0,
+            0.0
+          ],
+          "search": [
+            0.0,
+            0.0
+          ]
+        },
+        "brownian_sigma": {
+          "ref": [
+            0.0,
+            0.0
+          ],
+          "search": [
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "medium": {
+        "scale": [
+          0.9,
+          1.1
+        ],
+        "rotation_deg": [
+          -3.0,
+          3.0
+        ],
+        "blur_sigma": {
+          "ref": [
+            0.5,
+            0.95
+          ],
+          "search": [
+            0.8,
+            1.55
+          ]
+        },
+        "brightness": {
+          "ref": [
+            -18,
+            18
+          ],
+          "search": [
+            -22,
+            22
+          ]
+        },
+        "contrast": {
+          "ref": [
+            0.85,
+            1.18
+          ],
+          "search": [
+            0.8,
+            1.22
+          ]
+        },
+        "edge_gain": {
+          "ref": [
+            0.15,
+            0.6
+          ],
+          "search": [
+            0.15,
+            0.55
+          ]
+        },
+        "shading_amplitude": {
+          "ref": [
+            0.05,
+            0.13
+          ],
+          "search": [
+            0.06,
+            0.16
+          ]
+        },
+        "noise_sigma": {
+          "ref": [
+            2.0,
+            5.0
+          ],
+          "search": [
+            4.0,
+            9.0
+          ]
+        },
+        "dose": {
+          "ref": [
+            700,
+            2000
+          ],
+          "search": [
+            150,
+            600
+          ]
+        },
+        "thermal_drift": {
+          "ref": [
+            0.1,
+            0.6
+          ],
+          "search": [
+            0.8,
+            2.5
+          ]
+        },
+        "vibration_amp": {
+          "ref": [
+            0.05,
+            0.3
+          ],
+          "search": [
+            0.2,
+            0.8
+          ]
+        },
+        "salt_pepper_prob": {
+          "ref": [
+            0.0003,
+            0.001
+          ],
+          "search": [
+            0.001,
+            0.003
+          ]
+        },
+        "impulse_burst_prob": {
+          "ref": [
+            0.0,
+            0.0001
+          ],
+          "search": [
+            0.0001,
+            0.0005
+          ]
+        },
+        "brownian_sigma": {
+          "ref": [
+            0.1,
+            0.3
+          ],
+          "search": [
+            0.3,
+            0.8
+          ]
+        }
+      },
+      "hard": {
+        "scale": [
+          0.85,
+          1.15
+        ],
+        "rotation_deg": [
+          -5.0,
+          5.0
+        ],
+        "blur_sigma": {
+          "ref": [
+            0.7,
+            1.3
+          ],
+          "search": [
+            1.3,
+            2.4
+          ]
+        },
+        "brightness": {
+          "ref": [
+            -32,
+            32
+          ],
+          "search": [
+            -38,
+            38
+          ]
+        },
+        "contrast": {
+          "ref": [
+            0.62,
+            1.35
+          ],
+          "search": [
+            0.58,
+            1.38
+          ]
+        },
+        "edge_gain": {
+          "ref": [
+            0.12,
+            0.65
+          ],
+          "search": [
+            0.1,
+            0.6
+          ]
+        },
+        "shading_amplitude": {
+          "ref": [
+            0.1,
+            0.22
+          ],
+          "search": [
+            0.12,
+            0.26
+          ]
+        },
+        "noise_sigma": {
+          "ref": [
+            4.0,
+            8.0
+          ],
+          "search": [
+            8.0,
+            16.0
+          ]
+        },
+        "dose": {
+          "ref": [
+            300,
+            900
+          ],
+          "search": [
+            40,
+            180
+          ]
+        },
+        "thermal_drift": {
+          "ref": [
+            0.3,
+            1.2
+          ],
+          "search": [
+            2.0,
+            5.0
+          ]
+        },
+        "vibration_amp": {
+          "ref": [
+            0.15,
+            0.6
+          ],
+          "search": [
+            0.6,
+            1.8
+          ]
+        },
+        "salt_pepper_prob": {
+          "ref": [
+            0.001,
+            0.003
+          ],
+          "search": [
+            0.003,
+            0.008
+          ]
+        },
+        "impulse_burst_prob": {
+          "ref": [
+            0.0001,
+            0.0005
+          ],
+          "search": [
+            0.0005,
+            0.0015
+          ]
+        },
+        "brownian_sigma": {
+          "ref": [
+            0.2,
+            0.5
+          ],
+          "search": [
+            0.5,
+            1.2
+          ]
+        }
+      }
+    },
+    "vibration_freq_cycles_per_frame": [
+      3.0,
+      60.0
+    ]
+  },
+  "generation_seconds": 269.05,
+  "reproduce_command": "python generate_dataset.py --num-samples 1000 --output ../dataset_drift --seed 42 --supersample 10"
+}
