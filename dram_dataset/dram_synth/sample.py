@@ -36,7 +36,7 @@ import numpy as np
 from . import sem
 from . import random as artifacts
 from .layout import render_fine_canvas
-from .params import SEARCH_SIZE_PX, sample_parameters
+from .params import NOMINAL_FOOTPRINT_PX, SEARCH_SIZE_PX, sample_parameters
 
 
 def _reference_window(fine: np.ndarray, params: dict, s: int) -> tuple:
@@ -70,16 +70,72 @@ def _reference_window(fine: np.ndarray, params: dict, s: int) -> tuple:
     return window, corners_world
 
 
+def apply_overrides(params: dict, overrides: dict) -> dict:
+    """Pin chosen parameters of an already-drawn parameter set, in place.
+
+    This exists for the curated evaluation suite, where one stressor has to be
+    swept while everything else stays exactly as the seed drew it -- otherwise a
+    difference in accuracy cannot be attributed to the axis under test.
+
+    Nested imaging blocks are merged rather than replaced, so
+    ``{"search_imaging": {"blur_sigma": 2.4}}`` keeps the rest of the search
+    capture untouched. Keys inside ``noise_profile`` are merged the same way;
+    the convenience mirrors (``noise_sigma``, ``poisson_dose``, ``barrel_k``,
+    ``raster_shear_px``) are re-synced afterwards, and a top-level override of
+    one of them is pushed back down into the profile, because the profile is
+    what the pipeline actually applies.
+
+    Anything that derives from an overridden value -- the footprint from the
+    scale, the placement margin from the footprint -- is recomputed here so the
+    parameter set stays self-consistent and the ground-truth box stays inside
+    the frame.
+    """
+    mirror = {"noise_sigma": "detector_sigma", "poisson_dose": "dose",
+              "barrel_k": "barrel_k", "raster_shear_px": "raster_shear_px"}
+
+    for key, value in overrides.items():
+        if key in ("reference_imaging", "search_imaging") and isinstance(value, dict):
+            block = params[key]
+            profile = block["noise_profile"]
+            profile.update(value.get("noise_profile", {}))
+            for k2, v2 in value.items():
+                if k2 == "noise_profile":
+                    continue
+                block[k2] = v2
+                if k2 in mirror:
+                    profile[mirror[k2]] = v2
+            for top, inner in mirror.items():
+                block[top] = profile[inner]
+        else:
+            params[key] = value
+
+    # Derived quantities. The footprint follows the scale; the placement margin
+    # follows the footprint and rotation.
+    params["footprint_px"] = float(NOMINAL_FOOTPRINT_PX * params["scale"])
+    theta = np.deg2rad(params["rotation_deg"])
+    half_diag = 0.5 * params["footprint_px"] * (abs(np.cos(theta)) + abs(np.sin(theta)))
+    margin = float(half_diag + 26.0)
+    lo, hi = margin, SEARCH_SIZE_PX - margin
+    params["position_x"] = float(min(max(params["position_x"], lo), hi))
+    params["position_y"] = float(min(max(params["position_y"], lo), hi))
+    return params
+
+
 def build_sample(sample_seed: int, difficulty: str, supersample: int = 10,
-                 architecture: str = "dram") -> dict:
+                 architecture: str = "dram", overrides: dict = None) -> dict:
     """Generate one complete sample: both images, the ground truth and the
     full parameter record.
 
     `architecture` is "dram" or "finfet". It changes only what is rasterized
     onto the specimen canvas -- the imaging chain, the ground-truth algebra and
     the random draw sequence are identical for both.
+
+    `overrides` pins selected parameters after they are drawn; see
+    `apply_overrides`. Leaving it None reproduces the dataset exactly.
     """
     params = sample_parameters(sample_seed, difficulty, architecture)
+    if overrides:
+        params = apply_overrides(params, overrides)
     seeds = params["seeds"]
     s = int(supersample)
 
@@ -223,7 +279,7 @@ def render_one_sample(job: dict) -> dict:
     import os
 
     sample = build_sample(job["sample_seed"], job["difficulty"], job["supersample"],
-                          job.get("architecture", "dram"))
+                          job.get("architecture", "dram"), job.get("overrides"))
 
     ref_name = f"{job['image_id']}.png"
     search_name = f"{job['image_id']}.png"

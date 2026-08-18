@@ -82,15 +82,41 @@ python evaluate_dataset.py --dataset ../my_dataset
 
 ---
 
+## Curated evaluation suite &mdash; 420 controlled test cases
+
+`dataset_drift/` answers "how accurate overall". It cannot answer "accurate
+under *what*", because every pair varies every parameter at once. `eval_suite/`
+is the diagnostic complement: 7 stressor axes x 6 levels x 10 replicates, where
+each case moves **one** parameter and pins everything else, including all six
+random sub-seeds. Axes cover scale, reference resolution ratio, rotation, noise
+and dose, blur and scan error, layout periodicity, and combined operational
+scenarios.
+
+```
+python scripts/make_eval_suite.py --output eval_suite   # render 420 pairs (~3 min)
+python scripts/check_eval_suite.py                      # QC gate: PASS/FAIL
+python scripts/run_eval_suite.py                        # score v1 and v2 (~11 min)
+python scripts/visualize_eval_suite.py --replicate 1    # one figure per axis
+```
+
+Results, the rationale for every case, and the honest limitations are in
+[`eval_suite/README.md`](eval_suite/README.md); raw numbers in
+`reports/eval_suite/`.
+
+---
+
 ## Datasets in this repo
 
 | folder | samples | seed | notes |
 |---|---|---|---|
-| `dataset/` | 1000 | 42 | current dataset |
+| `dataset/` | 1000 | 42 | pre-drift-placement |
 | `dataset_2k/` | 1000 | 43 | second roll of the same config |
+| `dataset_drift/` | 1000 | 42 | current: drift-realistic placement, 800/100/100 |
+| `eval_suite/` | 420 | 11000001&ndash;11000010 | curated diagnostic suite, one axis per case |
 
-Both were produced by `dram_dataset/generate_dataset.py` and are reproducible
-from the `reproduce_command` recorded in their `metadata/generation_config.json`.
+All were produced by `dram_dataset/generate_dataset.py` (the suite via
+`scripts/make_eval_suite.py`, which drives the same engine) and are reproducible
+from the `reproduce_command` recorded in their metadata JSON.
 
 ---
 

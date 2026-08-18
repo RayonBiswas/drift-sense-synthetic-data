@@ -6,3 +6,10 @@ venv/
 .venv/
 *.egg-info/
 .DS_Store
+
+# Generated image data — regenerable from the generator + scripts/make_eval_suite.py.
+# Annotations, metadata, and READMEs under these dirs ARE tracked.
+dataset_drift/*/references/
+dataset_drift/*/searches/
+eval_suite/eval/references/
+eval_suite/eval/searches/
